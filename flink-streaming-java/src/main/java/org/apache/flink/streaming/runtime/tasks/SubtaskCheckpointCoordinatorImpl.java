@@ -75,6 +75,8 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
             LoggerFactory.getLogger(SubtaskCheckpointCoordinatorImpl.class);
     private static final int DEFAULT_MAX_RECORD_ABORTED_CHECKPOINTS = 128;
 
+    private static final int CHECKPOINT_EXECUTION_DELAY_LOG_THRESHOLD_MS = 30_000;
+
     private final CachingCheckpointStorageWorkerView checkpointStorage;
     private final String taskName;
     private final ExecutorService asyncOperationsThreadPool;
@@ -238,7 +240,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
             CheckpointOptions options,
             CheckpointMetricsBuilder metrics,
             OperatorChain<?, ?> operatorChain,
-            Supplier<Boolean> isCanceled)
+            Supplier<Boolean> isRunning)
             throws Exception {
 
         checkNotNull(options);
@@ -260,6 +262,8 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
             return;
         }
 
+        logCheckpointProcessingDelay(metadata);
+
         // Step (0): Record the last triggered checkpointId and abort the sync phase of checkpoint
         // if necessary.
         lastCheckpointId = metadata.getCheckpointId();
@@ -271,6 +275,13 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
                     "Checkpoint {} has been notified as aborted, would not trigger any checkpoint.",
                     metadata.getCheckpointId());
             return;
+        }
+
+        // if checkpoint has been previously unaligned, but was forced to be aligned,
+        // revert it here so that it can jump over output data
+        if (options.getAlignment() == CheckpointOptions.AlignmentType.FORCED_ALIGNED) {
+            options = options.withUnalignedSupported();
+            initCheckpoint(metadata.getCheckpointId(), options);
         }
 
         // Step (1): Prepare the checkpoint, allow operators to do some pre-barrier work.
@@ -296,8 +307,8 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
                 new HashMap<>(operatorChain.getNumberOfOperators());
         try {
             if (takeSnapshotSync(
-                    snapshotFutures, metadata, metrics, options, operatorChain, isCanceled)) {
-                finishAndReportAsync(snapshotFutures, metadata, metrics, options);
+                    snapshotFutures, metadata, metrics, options, operatorChain, isRunning)) {
+                finishAndReportAsync(snapshotFutures, metadata, metrics, isRunning);
             } else {
                 cleanup(snapshotFutures, metadata, metrics, new Exception("Checkpoint declined"));
             }
@@ -497,7 +508,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
             Map<OperatorID, OperatorSnapshotFutures> snapshotFutures,
             CheckpointMetaData metadata,
             CheckpointMetricsBuilder metrics,
-            CheckpointOptions options) {
+            Supplier<Boolean> isRunning) {
         // we are transferring ownership over snapshotInProgressList for cleanup to the thread,
         // active on submit
         asyncOperationsThreadPool.execute(
@@ -510,7 +521,8 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
                         registerConsumer(),
                         unregisterConsumer(),
                         env,
-                        asyncExceptionHandler));
+                        asyncExceptionHandler,
+                        isRunning));
     }
 
     private Consumer<AsyncCheckpointRunnable> registerConsumer() {
@@ -535,7 +547,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
             CheckpointMetricsBuilder checkpointMetrics,
             CheckpointOptions checkpointOptions,
             OperatorChain<?, ?> operatorChain,
-            Supplier<Boolean> isCanceled)
+            Supplier<Boolean> isRunning)
             throws Exception {
 
         for (final StreamOperatorWrapper<?, ?> operatorWrapper :
@@ -573,7 +585,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
                                     checkpointOptions,
                                     operatorChain,
                                     operatorWrapper.getStreamOperator(),
-                                    isCanceled,
+                                    isRunning,
                                     channelStateWriteResult,
                                     storage));
                 }
@@ -598,13 +610,13 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
             CheckpointOptions checkpointOptions,
             OperatorChain<?, ?> operatorChain,
             StreamOperator<?> op,
-            Supplier<Boolean> isCanceled,
+            Supplier<Boolean> isRunning,
             ChannelStateWriteResult channelStateWriteResult,
             CheckpointStreamFactory storage)
             throws Exception {
         OperatorSnapshotFutures snapshotInProgress =
                 checkpointStreamOperator(
-                        op, checkpointMetaData, checkpointOptions, storage, isCanceled);
+                        op, checkpointMetaData, checkpointOptions, storage, isRunning);
         if (op == operatorChain.getMainOperator()) {
             snapshotInProgress.setInputChannelStateFuture(
                     channelStateWriteResult
@@ -679,7 +691,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
             CheckpointMetaData checkpointMetaData,
             CheckpointOptions checkpointOptions,
             CheckpointStreamFactory storageLocation,
-            Supplier<Boolean> isCanceled)
+            Supplier<Boolean> isRunning)
             throws Exception {
         try {
             return op.snapshotState(
@@ -688,10 +700,19 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
                     checkpointOptions,
                     storageLocation);
         } catch (Exception ex) {
-            if (!isCanceled.get()) {
+            if (isRunning.get()) {
                 LOG.info(ex.getMessage(), ex);
             }
             throw ex;
+        }
+    }
+
+    private static void logCheckpointProcessingDelay(CheckpointMetaData checkpointMetaData) {
+        long delay = System.currentTimeMillis() - checkpointMetaData.getReceiveTimestamp();
+        if (delay >= CHECKPOINT_EXECUTION_DELAY_LOG_THRESHOLD_MS) {
+            LOG.warn(
+                    "Time from receiving all checkpoint barriers/RPC to executing it exceeded threshold: {}ms",
+                    delay);
         }
     }
 }

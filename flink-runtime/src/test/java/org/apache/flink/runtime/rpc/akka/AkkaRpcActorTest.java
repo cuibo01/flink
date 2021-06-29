@@ -34,6 +34,7 @@ import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.Preconditions;
+import org.apache.flink.util.SerializedValue;
 import org.apache.flink.util.TestLogger;
 
 import akka.actor.ActorRef;
@@ -47,6 +48,9 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -55,6 +59,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertEquals;
@@ -535,6 +540,73 @@ public class AkkaRpcActorTest extends TestLogger {
         }
     }
 
+    @Test
+    public void canRespondWithSerializedValueLocally() throws Exception {
+        try (final SerializedValueRespondingEndpoint endpoint =
+                new SerializedValueRespondingEndpoint(akkaRpcService)) {
+            endpoint.start();
+
+            final SerializedValueRespondingGateway selfGateway =
+                    endpoint.getSelfGateway(SerializedValueRespondingGateway.class);
+
+            assertThat(
+                    selfGateway.getSerializedValueSynchronously(),
+                    equalTo(SerializedValueRespondingEndpoint.SERIALIZED_VALUE));
+
+            final CompletableFuture<SerializedValue<String>> responseFuture =
+                    selfGateway.getSerializedValue();
+
+            assertThat(
+                    responseFuture.get(),
+                    equalTo(SerializedValueRespondingEndpoint.SERIALIZED_VALUE));
+        }
+    }
+
+    /**
+     * Verifies that actions scheduled via the main thread executor are eventually run while
+     * adhering to the provided delays.
+     *
+     * <p>This test does not assert any upper bounds for how late something is run, because that
+     * would make the test unstable in some environments, and there is no guarantee that such an
+     * upper bound exists in the first place.
+     *
+     * <p>There are various failure points for this test, including the scheduling from the {@link
+     * RpcEndpoint} to the {@link AkkaInvocationHandler}, the conversion of these calls by the
+     * handler into Call-/RunAsync messages, the handling of said messages by the {@link
+     * AkkaRpcActor} and in the case of RunAsync the actual scheduling by the underlying actor
+     * system. This isn't an ideal test setup, but these components are difficult to test in
+     * isolation.
+     */
+    @Test
+    public void testScheduling() throws ExecutionException, InterruptedException {
+        final SchedulingRpcEndpoint endpoint = new SchedulingRpcEndpoint(akkaRpcService);
+
+        endpoint.start();
+
+        final SchedulingRpcEndpointGateway gateway =
+                endpoint.getSelfGateway(SchedulingRpcEndpointGateway.class);
+
+        final CompletableFuture<Void> scheduleRunnableFuture = new CompletableFuture<>();
+        final CompletableFuture<Void> scheduleCallableFuture = new CompletableFuture<>();
+        final CompletableFuture<Void> executeFuture = new CompletableFuture<>();
+
+        final long scheduleTime = System.nanoTime();
+        gateway.schedule(scheduleRunnableFuture, scheduleCallableFuture, executeFuture);
+
+        assertThat(
+                scheduleRunnableFuture.thenApply(ignored -> System.nanoTime()).get(),
+                greaterThanOrEqualTo(
+                        scheduleTime
+                                + Duration.ofMillis(SchedulingRpcEndpoint.DELAY_MILLIS).toNanos()));
+        assertThat(
+                scheduleCallableFuture.thenApply(ignored -> System.nanoTime()).get(),
+                greaterThanOrEqualTo(
+                        scheduleTime
+                                + Duration.ofMillis(SchedulingRpcEndpoint.DELAY_MILLIS).toNanos()));
+        // execute() calls don't have a delay attached, so we just check that it was run at all
+        executeFuture.get();
+    }
+
     // ------------------------------------------------------------------------
     //  Test Actors and Interfaces
     // ------------------------------------------------------------------------
@@ -581,6 +653,41 @@ public class AkkaRpcActorTest extends TestLogger {
         @Override
         public Integer synchronousFoobar() {
             return null;
+        }
+    }
+
+    // ------------------------------------------------------------------------
+
+    interface SerializedValueRespondingGateway extends RpcGateway {
+        CompletableFuture<SerializedValue<String>> getSerializedValue();
+
+        SerializedValue<String> getSerializedValueSynchronously();
+    }
+
+    static class SerializedValueRespondingEndpoint extends RpcEndpoint
+            implements SerializedValueRespondingGateway {
+        static final SerializedValue<String> SERIALIZED_VALUE;
+
+        static {
+            try {
+                SERIALIZED_VALUE = new SerializedValue<>("string-value");
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        public SerializedValueRespondingEndpoint(RpcService rpcService) {
+            super(rpcService);
+        }
+
+        @Override
+        public CompletableFuture<SerializedValue<String>> getSerializedValue() {
+            return CompletableFuture.completedFuture(SERIALIZED_VALUE);
+        }
+
+        @Override
+        public SerializedValue<String> getSerializedValueSynchronously() {
+            return SERIALIZED_VALUE;
         }
     }
 
@@ -807,6 +914,46 @@ public class AkkaRpcActorTest extends TestLogger {
 
         private void waitUntilOnStopHasBeenCalled() throws InterruptedException {
             onStopHasBeenCalled.await();
+        }
+    }
+
+    // ------------------------------------------------------------------------
+
+    interface SchedulingRpcEndpointGateway extends RpcGateway {
+        void schedule(
+                final CompletableFuture<Void> scheduleRunnableFuture,
+                final CompletableFuture<Void> scheduleCallableFuture,
+                final CompletableFuture<Void> executeFuture);
+    }
+
+    private static final class SchedulingRpcEndpoint extends RpcEndpoint
+            implements SchedulingRpcEndpointGateway {
+
+        static final int DELAY_MILLIS = 20;
+
+        public SchedulingRpcEndpoint(RpcService rpcService) {
+            super(rpcService);
+        }
+
+        @Override
+        public void schedule(
+                final CompletableFuture<Void> scheduleRunnableFuture,
+                final CompletableFuture<Void> scheduleCallableFuture,
+                final CompletableFuture<Void> executeFuture) {
+            getMainThreadExecutor()
+                    .schedule(
+                            () -> scheduleRunnableFuture.complete(null),
+                            DELAY_MILLIS,
+                            TimeUnit.MILLISECONDS);
+            getMainThreadExecutor()
+                    .schedule(
+                            () -> {
+                                scheduleCallableFuture.complete(null);
+                                return null;
+                            },
+                            DELAY_MILLIS,
+                            TimeUnit.MILLISECONDS);
+            getMainThreadExecutor().execute(() -> executeFuture.complete(null));
         }
     }
 }

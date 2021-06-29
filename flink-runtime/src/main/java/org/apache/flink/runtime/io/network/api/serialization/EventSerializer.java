@@ -69,7 +69,9 @@ public class EventSerializer {
 
     private static final int CHECKPOINT_TYPE_SAVEPOINT = 1;
 
-    private static final int CHECKPOINT_TYPE_SYNC_SAVEPOINT = 2;
+    private static final int CHECKPOINT_TYPE_SAVEPOINT_SUSPEND = 2;
+
+    private static final int CHECKPOINT_TYPE_SAVEPOINT_TERMINATE = 3;
 
     // ------------------------------------------------------------------------
     //  Serialization Logic
@@ -201,8 +203,10 @@ public class EventSerializer {
             typeInt = CHECKPOINT_TYPE_CHECKPOINT;
         } else if (checkpointType == CheckpointType.SAVEPOINT) {
             typeInt = CHECKPOINT_TYPE_SAVEPOINT;
-        } else if (checkpointType == CheckpointType.SYNC_SAVEPOINT) {
-            typeInt = CHECKPOINT_TYPE_SYNC_SAVEPOINT;
+        } else if (checkpointType == CheckpointType.SAVEPOINT_SUSPEND) {
+            typeInt = CHECKPOINT_TYPE_SAVEPOINT_SUSPEND;
+        } else if (checkpointType == CheckpointType.SAVEPOINT_TERMINATE) {
+            typeInt = CHECKPOINT_TYPE_SAVEPOINT_TERMINATE;
         } else {
             throw new IOException("Unknown checkpoint type: " + checkpointType);
         }
@@ -218,8 +222,7 @@ public class EventSerializer {
             buf.putInt(locationBytes.length);
             buf.put(locationBytes);
         }
-        buf.put((byte) (checkpointOptions.isExactlyOnceMode() ? 1 : 0));
-        buf.put((byte) (checkpointOptions.isUnalignedCheckpoint() ? 1 : 0));
+        buf.put((byte) checkpointOptions.getAlignment().ordinal());
         buf.putLong(checkpointOptions.getAlignmentTimeout());
 
         buf.flip();
@@ -239,8 +242,10 @@ public class EventSerializer {
             checkpointType = CheckpointType.CHECKPOINT;
         } else if (checkpointTypeCode == CHECKPOINT_TYPE_SAVEPOINT) {
             checkpointType = CheckpointType.SAVEPOINT;
-        } else if (checkpointTypeCode == CHECKPOINT_TYPE_SYNC_SAVEPOINT) {
-            checkpointType = CheckpointType.SYNC_SAVEPOINT;
+        } else if (checkpointTypeCode == CHECKPOINT_TYPE_SAVEPOINT_SUSPEND) {
+            checkpointType = CheckpointType.SAVEPOINT_SUSPEND;
+        } else if (checkpointTypeCode == CHECKPOINT_TYPE_SAVEPOINT_TERMINATE) {
+            checkpointType = CheckpointType.SAVEPOINT_TERMINATE;
         } else {
             throw new IOException("Unknown checkpoint type code: " + checkpointTypeCode);
         }
@@ -253,19 +258,15 @@ public class EventSerializer {
             buffer.get(bytes);
             locationRef = new CheckpointStorageLocationReference(bytes);
         }
-        final boolean isExactlyOnceMode = buffer.get() == 1;
-        final boolean isUnalignedCheckpoint = buffer.get() == 1;
+        final CheckpointOptions.AlignmentType alignmentType =
+                CheckpointOptions.AlignmentType.values()[buffer.get()];
         final long alignmentTimeout = buffer.getLong();
 
         return new CheckpointBarrier(
                 id,
                 timestamp,
                 new CheckpointOptions(
-                        checkpointType,
-                        locationRef,
-                        isExactlyOnceMode,
-                        isUnalignedCheckpoint,
-                        alignmentTimeout));
+                        checkpointType, locationRef, alignmentType, alignmentTimeout));
     }
 
     // ------------------------------------------------------------------------

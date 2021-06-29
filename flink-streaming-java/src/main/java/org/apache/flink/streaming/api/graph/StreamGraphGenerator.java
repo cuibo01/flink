@@ -145,7 +145,7 @@ public class StreamGraphGenerator {
 
     private String jobName = DEFAULT_JOB_NAME;
 
-    private SavepointRestoreSettings savepointRestoreSettings = SavepointRestoreSettings.none();
+    private SavepointRestoreSettings savepointRestoreSettings;
 
     private long defaultBufferTimeout = StreamingJobGraphGenerator.UNDEFINED_NETWORK_BUFFER_TIMEOUT;
 
@@ -215,6 +215,7 @@ public class StreamGraphGenerator {
         this.executionConfig = checkNotNull(executionConfig);
         this.checkpointConfig = new CheckpointConfig(checkpointConfig);
         this.configuration = checkNotNull(configuration);
+        this.savepointRestoreSettings = SavepointRestoreSettings.fromConfiguration(configuration);
     }
 
     public StreamGraphGenerator setRuntimeExecutionMode(
@@ -267,6 +268,14 @@ public class StreamGraphGenerator {
 
         for (Transformation<?> transformation : transformations) {
             transform(transformation);
+        }
+
+        for (StreamNode node : streamGraph.getStreamNodes()) {
+            if (node.getInEdges().stream().anyMatch(edge -> edge.getPartitioner().isBroadcast())) {
+                for (StreamEdge edge : node.getInEdges()) {
+                    edge.setSupportsUnalignedCheckpoints(false);
+                }
+            }
         }
 
         final StreamGraph builtStreamGraph = streamGraph;

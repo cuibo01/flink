@@ -34,7 +34,10 @@ import org.apache.flink.kubernetes.kubeclient.parameters.KubernetesJobManagerPar
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesConfigMap;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesPod;
 import org.apache.flink.kubernetes.kubeclient.resources.NoOpWatchCallbackHandler;
+import org.apache.flink.runtime.persistence.PossibleInconsistentStateException;
 import org.apache.flink.runtime.rest.HttpMethodWrapper;
+import org.apache.flink.runtime.util.ExecutorThreadFactory;
+import org.apache.flink.util.ExceptionUtils;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
@@ -53,6 +56,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -430,6 +435,44 @@ public class Fabric8FlinkKubeClientTest extends KubernetesClientTestBase {
     }
 
     @Test
+    public void testCheckAndUpdateConfigMapWhenGetConfigMapFailed() throws Exception {
+        final int configuredRetries =
+                flinkConfig.getInteger(
+                        KubernetesConfigOptions.KUBERNETES_TRANSACTIONAL_OPERATION_MAX_RETRIES);
+        final KubernetesConfigMap configMap = buildTestingConfigMap();
+        this.flinkKubeClient.createConfigMap(configMap).get();
+
+        mockGetConfigMapFailed(configMap.getInternalResource());
+
+        final int initialRequestCount = server.getRequestCount();
+        try {
+            this.flinkKubeClient
+                    .checkAndUpdateConfigMap(
+                            TESTING_CONFIG_MAP_NAME,
+                            c -> {
+                                throw new AssertionError(
+                                        "The replace operation should have never been triggered.");
+                            })
+                    .get();
+            fail(
+                    "checkAndUpdateConfigMap should fail without a PossibleInconsistentStateException being the cause when number of retries has been exhausted.");
+        } catch (Exception ex) {
+            assertThat(
+                    ex,
+                    FlinkMatchers.containsMessage(
+                            "Could not complete the "
+                                    + "operation. Number of retries has been exhausted."));
+            final int actualRetryCount = server.getRequestCount() - initialRequestCount;
+            assertThat(actualRetryCount, is(configuredRetries + 1));
+            assertThat(
+                    "An error while retrieving the ConfigMap should not cause a PossibleInconsistentStateException.",
+                    ExceptionUtils.findThrowable(ex, PossibleInconsistentStateException.class)
+                            .isPresent(),
+                    is(false));
+        }
+    }
+
+    @Test
     public void testCheckAndUpdateConfigMapWhenReplaceConfigMapFailed() throws Exception {
         final int configuredRetries =
                 flinkConfig.getInteger(
@@ -450,7 +493,7 @@ public class Fabric8FlinkKubeClientTest extends KubernetesClientTestBase {
                             })
                     .get();
             fail(
-                    "CheckAndUpdateConfigMap should fail with exception when number of retries has been exhausted.");
+                    "checkAndUpdateConfigMap should fail due to a PossibleInconsistentStateException when number of retries has been exhausted.");
         } catch (Exception ex) {
             assertThat(
                     ex,
@@ -458,6 +501,12 @@ public class Fabric8FlinkKubeClientTest extends KubernetesClientTestBase {
                             "Could not complete the "
                                     + "operation. Number of retries has been exhausted."));
             assertThat(retries.get(), is(configuredRetries + 1));
+
+            assertThat(
+                    "An error while replacing the ConfigMap should cause an PossibleInconsistentStateException.",
+                    ExceptionUtils.findThrowable(ex, PossibleInconsistentStateException.class)
+                            .isPresent(),
+                    is(true));
         }
     }
 
@@ -467,7 +516,7 @@ public class Fabric8FlinkKubeClientTest extends KubernetesClientTestBase {
         flinkConfig.set(KubernetesConfigOptions.KUBE_CONFIG_FILE, kubeConfigFile);
 
         final FlinkKubeClient realFlinkKubeClient =
-                DefaultKubeClientFactory.getInstance().fromConfiguration(flinkConfig);
+                FlinkKubeClientFactory.getInstance().fromConfiguration(flinkConfig, "testing");
         realFlinkKubeClient.watchConfigMaps(CLUSTER_ID, new NoOpWatchCallbackHandler<>());
         final String path =
                 "/api/v1/namespaces/"
@@ -480,6 +529,16 @@ public class Fabric8FlinkKubeClientTest extends KubernetesClientTestBase {
         assertThat(watchRequest.getMethod(), is(HttpMethodWrapper.GET.toString()));
     }
 
+    @Test
+    public void testIOExecutorShouldBeShutDownWhenFlinkKubeClientClosed() {
+        final ExecutorService executorService =
+                Executors.newFixedThreadPool(2, new ExecutorThreadFactory("Testing-IO"));
+        final FlinkKubeClient flinkKubeClient =
+                new Fabric8FlinkKubeClient(flinkConfig, kubeClient, executorService);
+        flinkKubeClient.close();
+        assertThat(executorService.isShutdown(), is(true));
+    }
+
     private KubernetesConfigMap buildTestingConfigMap() {
         final Map<String, String> data = new HashMap<>();
         data.put(TESTING_CONFIG_MAP_KEY, TESTING_CONFIG_MAP_VALUE);
@@ -488,6 +547,7 @@ public class Fabric8FlinkKubeClientTest extends KubernetesClientTestBase {
                         .withNewMetadata()
                         .withName(TESTING_CONFIG_MAP_NAME)
                         .withLabels(TESTING_LABELS)
+                        .withNamespace(NAMESPACE)
                         .endMetadata()
                         .withData(data)
                         .build());

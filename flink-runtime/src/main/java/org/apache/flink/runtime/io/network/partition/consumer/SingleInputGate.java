@@ -156,6 +156,7 @@ public class SingleInputGate extends IndexedInputGate {
     @GuardedBy("inputChannelsWithData")
     private final BitSet enqueuedInputChannelsWithData;
 
+    @GuardedBy("inputChannelsWithData")
     private final BitSet channelsWithEndOfPartitionEvents;
 
     @GuardedBy("inputChannelsWithData")
@@ -296,6 +297,7 @@ public class SingleInputGate extends IndexedInputGate {
 
     @VisibleForTesting
     void convertRecoveredInputChannels() {
+        LOG.info("Converting recovered input channels ({} channels)", getNumberOfInputChannels());
         for (Map.Entry<IntermediateResultPartitionID, InputChannel> entry :
                 inputChannels.entrySet()) {
             InputChannel inputChannel = entry.getValue();
@@ -728,16 +730,24 @@ public class SingleInputGate extends IndexedInputGate {
         }
 
         if (event.getClass() == EndOfPartitionEvent.class) {
-            channelsWithEndOfPartitionEvents.set(currentChannel.getChannelIndex());
+            synchronized (inputChannelsWithData) {
+                checkState(!channelsWithEndOfPartitionEvents.get(currentChannel.getChannelIndex()));
+                channelsWithEndOfPartitionEvents.set(currentChannel.getChannelIndex());
+                hasReceivedAllEndOfPartitionEvents =
+                        channelsWithEndOfPartitionEvents.cardinality() == numberOfInputChannels;
 
-            if (channelsWithEndOfPartitionEvents.cardinality() == numberOfInputChannels) {
+                enqueuedInputChannelsWithData.clear(currentChannel.getChannelIndex());
+                if (inputChannelsWithData.contains(currentChannel)) {
+                    inputChannelsWithData.getAndRemove(channel -> channel == currentChannel);
+                }
+            }
+            if (hasReceivedAllEndOfPartitionEvents) {
                 // Because of race condition between:
                 // 1. releasing inputChannelsWithData lock in this method and reaching this place
-                // 2. empty data notification that re-enqueues a channel
-                // we can end up with moreAvailable flag set to true, while we expect no more data.
+                // 2. empty data notification that re-enqueues a channel we can end up with
+                // moreAvailable flag set to true, while we expect no more data.
                 checkState(!moreAvailable || !pollNext().isPresent());
                 moreAvailable = false;
-                hasReceivedAllEndOfPartitionEvents = true;
                 markAvailable();
             }
 
@@ -876,13 +886,17 @@ public class SingleInputGate extends IndexedInputGate {
     }
 
     /**
-     * Queues the channel if not already enqueued, potentially raising the priority.
+     * Queues the channel if not already enqueued and not received EndOfPartition, potentially
+     * raising the priority.
      *
      * @return true iff it has been enqueued/prioritized = some change to {@link
      *     #inputChannelsWithData} happened
      */
     private boolean queueChannelUnsafe(InputChannel channel, boolean priority) {
         assert Thread.holdsLock(inputChannelsWithData);
+        if (channelsWithEndOfPartitionEvents.get(channel.getChannelIndex())) {
+            return false;
+        }
 
         final boolean alreadyEnqueued =
                 enqueuedInputChannelsWithData.get(channel.getChannelIndex());

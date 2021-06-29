@@ -585,8 +585,7 @@ public class CheckpointCoordinatorTestingUtils {
                                     jobId,
                                     (long) args[0],
                                     (long) args[1],
-                                    (CheckpointOptions) args[2],
-                                    false);
+                                    (CheckpointOptions) args[2]);
                             return null;
                         })
                 .when(mock)
@@ -707,9 +706,21 @@ public class CheckpointCoordinatorTestingUtils {
             return this;
         }
 
+        public CheckpointCoordinatorBuilder setCheckpointsCleaner(
+                CheckpointsCleaner checkpointsCleaner) {
+            this.checkpointsCleaner = checkpointsCleaner;
+            return this;
+        }
+
         public CheckpointCoordinatorBuilder setCheckpointIDCounter(
                 CheckpointIDCounter checkpointIDCounter) {
             this.checkpointIDCounter = checkpointIDCounter;
+            return this;
+        }
+
+        public CheckpointCoordinatorBuilder setCheckpointFailureManager(
+                CheckpointFailureManager checkpointFailureManager) {
+            this.failureManager = checkpointFailureManager;
             return this;
         }
 

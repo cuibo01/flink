@@ -87,7 +87,6 @@ under the License.
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-connector-base</artifactId>
 			<version>${project.version}</version>
-			<scope>provided</scope>
 		</dependency>
 
 		<!-- test dependencies -->
@@ -235,6 +234,10 @@ under the License.
 							<goal>test-jar-no-fork</goal>
 						</goals>
 						<configuration>
+							<archive>
+								<!-- Globally exclude maven metadata, because it may accidentally bundle files we don't intend to -->
+								<addMavenDescriptor>false</addMavenDescriptor>
+							</archive>
 							<includes>
 								<include>**/KafkaTestEnvironmentImpl*</include>
 								<include>META-INF/LICENSE</include>

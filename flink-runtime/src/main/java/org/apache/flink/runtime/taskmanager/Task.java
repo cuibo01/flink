@@ -102,9 +102,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.Consumer;
@@ -1139,6 +1142,10 @@ public class Task
                                 new TaskCanceler(
                                         LOG,
                                         this::closeNetworkResources,
+                                        taskCancellationTimeout > 0
+                                                ? taskCancellationTimeout
+                                                : TaskManagerOptions.TASK_CANCELLATION_TIMEOUT
+                                                        .defaultValue(),
                                         invokable,
                                         executingThread,
                                         taskNameWithSubtask);
@@ -1243,23 +1250,20 @@ public class Task
      * @param checkpointID The ID identifying the checkpoint.
      * @param checkpointTimestamp The timestamp associated with the checkpoint.
      * @param checkpointOptions Options for performing this checkpoint.
-     * @param advanceToEndOfEventTime Flag indicating if the source should inject a {@code
-     *     MAX_WATERMARK} in the pipeline to fire any registered event-time timers.
      */
     public void triggerCheckpointBarrier(
             final long checkpointID,
             final long checkpointTimestamp,
-            final CheckpointOptions checkpointOptions,
-            final boolean advanceToEndOfEventTime) {
+            final CheckpointOptions checkpointOptions) {
 
         final AbstractInvokable invokable = this.invokable;
         final CheckpointMetaData checkpointMetaData =
-                new CheckpointMetaData(checkpointID, checkpointTimestamp);
+                new CheckpointMetaData(
+                        checkpointID, checkpointTimestamp, System.currentTimeMillis());
 
         if (executionState == ExecutionState.RUNNING && invokable != null) {
             try {
-                invokable.triggerCheckpointAsync(
-                        checkpointMetaData, checkpointOptions, advanceToEndOfEventTime);
+                invokable.triggerCheckpointAsync(checkpointMetaData, checkpointOptions);
             } catch (RejectedExecutionException ex) {
                 // This may happen if the mailbox is closed. It means that the task is shutting
                 // down, so we just ignore it.
@@ -1373,9 +1377,10 @@ public class Task
     public void deliverOperatorEvent(OperatorID operator, SerializedValue<OperatorEvent> evt)
             throws FlinkException {
         final AbstractInvokable invokable = this.invokable;
+        final ExecutionState currentState = this.executionState;
 
-        if (invokable == null || executionState != ExecutionState.RUNNING) {
-            throw new TaskNotRunningException("Task is not yet running.");
+        if (invokable == null || (currentState != ExecutionState.RUNNING)) {
+            throw new TaskNotRunningException("Task is not running, but in state " + currentState);
         }
 
         try {
@@ -1516,6 +1521,9 @@ public class Task
 
         private final Logger logger;
         private final Runnable networkResourcesCloser;
+        /** Time to wait after cancellation and interruption before releasing network resources. */
+        private final long taskCancellationTimeout;
+
         private final AbstractInvokable invokable;
         private final Thread executer;
         private final String taskName;
@@ -1523,11 +1531,13 @@ public class Task
         TaskCanceler(
                 Logger logger,
                 Runnable networkResourcesCloser,
+                long taskCancellationTimeout,
                 AbstractInvokable invokable,
                 Thread executer,
                 String taskName) {
             this.logger = logger;
             this.networkResourcesCloser = networkResourcesCloser;
+            this.taskCancellationTimeout = taskCancellationTimeout;
             this.invokable = invokable;
             this.executer = executer;
             this.taskName = taskName;
@@ -1539,7 +1549,17 @@ public class Task
                 // the user-defined cancel method may throw errors.
                 // we need do continue despite that
                 try {
-                    invokable.cancel();
+                    Future<Void> cancellationFuture = invokable.cancel();
+                    // Wait for any active actions to complete (e.g. timers, mailbox actions)
+                    // Before that, interrupt to notify them about cancellation
+                    if (invokable.shouldInterruptOnCancel()) {
+                        executer.interrupt();
+                    }
+                    try {
+                        cancellationFuture.get(taskCancellationTimeout, TimeUnit.MILLISECONDS);
+                    } catch (ExecutionException | TimeoutException | InterruptedException e) {
+                        logger.debug("Error while waiting the task to terminate {}.", taskName, e);
+                    }
                 } catch (Throwable t) {
                     ExceptionUtils.rethrowIfFatalError(t);
                     logger.error("Error while canceling the task {}.", taskName, t);
@@ -1549,15 +1569,8 @@ public class Task
                 // in order to unblock async Threads, which produce/consume the
                 // intermediate streams outside of the main Task Thread (like
                 // the Kafka consumer).
-                //
-                // Don't do this before cancelling the invokable. Otherwise we
-                // will get misleading errors in the logs.
                 networkResourcesCloser.run();
 
-                // send the initial interruption signal, if requested
-                if (invokable.shouldInterruptOnCancel()) {
-                    executer.interrupt();
-                }
             } catch (Throwable t) {
                 ExceptionUtils.rethrowIfFatalError(t);
                 logger.error("Error in the task canceler for task {}.", taskName, t);

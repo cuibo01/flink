@@ -34,12 +34,14 @@ import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
+import org.apache.flink.runtime.checkpoint.CheckpointType;
 import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
 import org.apache.flink.runtime.checkpoint.SubtaskState;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.concurrent.TestingUncaughtExceptionHandler;
+import org.apache.flink.runtime.deployment.ResultPartitionDeploymentDescriptor;
 import org.apache.flink.runtime.execution.CancelTaskException;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.execution.ExecutionState;
@@ -56,6 +58,7 @@ import org.apache.flink.runtime.operators.testutils.ExpectedTestException;
 import org.apache.flink.runtime.operators.testutils.MockEnvironment;
 import org.apache.flink.runtime.operators.testutils.MockEnvironmentBuilder;
 import org.apache.flink.runtime.operators.testutils.MockInputSplitProvider;
+import org.apache.flink.runtime.shuffle.PartitionDescriptorBuilder;
 import org.apache.flink.runtime.shuffle.ShuffleEnvironment;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
 import org.apache.flink.runtime.state.AbstractStateBackend;
@@ -85,6 +88,7 @@ import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.runtime.taskmanager.TaskManagerActions;
 import org.apache.flink.runtime.taskmanager.TestTaskBuilder;
 import org.apache.flink.runtime.util.FatalExitExceptionHandler;
+import org.apache.flink.runtime.util.NettyShuffleDescriptorBuilder;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.api.graph.StreamConfig;
@@ -113,6 +117,7 @@ import org.apache.flink.util.CloseableIterable;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.function.BiConsumerWithException;
 import org.apache.flink.util.function.RunnableWithException;
 import org.apache.flink.util.function.SupplierWithException;
 
@@ -130,6 +135,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.StreamCorruptedException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -148,7 +154,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
+import static org.apache.flink.api.common.typeinfo.BasicTypeInfo.STRING_TYPE_INFO;
 import static org.apache.flink.runtime.checkpoint.StateObjectCollection.singleton;
+import static org.apache.flink.runtime.state.CheckpointStorageLocationReference.getDefault;
+import static org.apache.flink.streaming.runtime.tasks.mailbox.TaskMailbox.MAX_PRIORITY;
 import static org.apache.flink.streaming.util.StreamTaskUtil.waitTaskIsRunning;
 import static org.apache.flink.util.Preconditions.checkState;
 import static org.hamcrest.Matchers.instanceOf;
@@ -179,12 +189,144 @@ public class StreamTaskTest extends TestLogger {
     @Rule public final Timeout timeoutPerTest = Timeout.seconds(30);
 
     @Test
+    public void testCancellationWaitsForActiveTimers() throws Exception {
+        StreamTaskWithBlockingTimer.reset();
+        ResultPartitionDeploymentDescriptor descriptor =
+                new ResultPartitionDeploymentDescriptor(
+                        PartitionDescriptorBuilder.newBuilder().build(),
+                        NettyShuffleDescriptorBuilder.newBuilder().buildLocal(),
+                        1,
+                        false);
+        Task task =
+                new TestTaskBuilder(new NettyShuffleEnvironmentBuilder().build())
+                        .setInvokable(StreamTaskWithBlockingTimer.class)
+                        .setResultPartitions(singletonList(descriptor))
+                        .build();
+        task.startTaskThread();
+
+        StreamTaskWithBlockingTimer.timerStarted.join();
+        task.cancelExecution();
+
+        task.getTerminationFuture().join();
+        // explicitly check for exceptions as they are ignored after cancellation
+        StreamTaskWithBlockingTimer.timerFinished.join();
+        checkState(task.getExecutionState() == ExecutionState.CANCELED);
+    }
+
+    @Test
+    public void testSavepointSuspendCompleted() throws Exception {
+        testSyncSavepointWithEndInput(
+                StreamTask::notifyCheckpointCompleteAsync, CheckpointType.SAVEPOINT_SUSPEND, false);
+    }
+
+    @Test
+    public void testSavepointTerminateCompleted() throws Exception {
+        testSyncSavepointWithEndInput(
+                StreamTask::notifyCheckpointCompleteAsync,
+                CheckpointType.SAVEPOINT_TERMINATE,
+                true);
+    }
+
+    @Test
+    public void testSavepointSuspendedAborted() throws Exception {
+        testSyncSavepointWithEndInput(
+                (task, id) -> task.abortCheckpointOnBarrier(id, new RuntimeException()),
+                CheckpointType.SAVEPOINT_SUSPEND,
+                true);
+    }
+
+    @Test
+    public void testSavepointTerminateAborted() throws Exception {
+        testSyncSavepointWithEndInput(
+                (task, id) -> task.abortCheckpointOnBarrier(id, new RuntimeException()),
+                CheckpointType.SAVEPOINT_TERMINATE,
+                true);
+    }
+
+    @Test
+    public void testSavepointSuspendAbortedAsync() throws Exception {
+        testSyncSavepointWithEndInput(
+                StreamTask::notifyCheckpointAbortAsync, CheckpointType.SAVEPOINT_SUSPEND, true);
+    }
+
+    @Test
+    public void testSavepointTerminateAbortedAsync() throws Exception {
+        testSyncSavepointWithEndInput(
+                StreamTask::notifyCheckpointAbortAsync, CheckpointType.SAVEPOINT_TERMINATE, true);
+    }
+
+    /**
+     * Test for SyncSavepoint and EndInput interactions. Targets following scenarios scenarios:
+     *
+     * <ol>
+     *   <li>Thread1: notify sync savepoint
+     *   <li>Thread2: endInput
+     *   <li>Thread1: confirm/abort/abortAsync
+     *   <li>assert inputEnded: confirmed - no, abort/abortAsync - yes
+     * </ol>
+     */
+    private void testSyncSavepointWithEndInput(
+            BiConsumerWithException<StreamTask<?, ?>, Long, IOException> savepointResult,
+            CheckpointType checkpointType,
+            boolean expectEndInput)
+            throws Exception {
+        StreamTaskMailboxTestHarness<String> harness =
+                new StreamTaskMailboxTestHarnessBuilder<>(OneInputStreamTask::new, STRING_TYPE_INFO)
+                        .addInput(STRING_TYPE_INFO)
+                        .setupOutputForSingletonOperatorChain(
+                                new TestBoundedOneInputStreamOperator())
+                        .build();
+
+        final long checkpointId = 1L;
+        CountDownLatch savepointTriggeredLatch = new CountDownLatch(1);
+        CountDownLatch inputEndedLatch = new CountDownLatch(1);
+
+        MailboxExecutor executor =
+                harness.streamTask.getMailboxExecutorFactory().createExecutor(MAX_PRIORITY);
+        executor.execute(
+                () -> {
+                    try {
+                        harness.streamTask.triggerCheckpointOnBarrier(
+                                new CheckpointMetaData(checkpointId, checkpointId),
+                                new CheckpointOptions(checkpointType, getDefault()),
+                                new CheckpointMetricsBuilder());
+                    } catch (IOException e) {
+                        fail(e.getMessage());
+                    }
+                },
+                "triggerCheckpointOnBarrier");
+        new Thread(
+                        () -> {
+                            try {
+                                savepointTriggeredLatch.await();
+                                harness.endInput();
+                                inputEndedLatch.countDown();
+                            } catch (InterruptedException e) {
+                                fail(e.getMessage());
+                            }
+                        })
+                .start();
+        // this mails should be executed from the one above (from triggerCheckpointOnBarrier)
+        executor.execute(savepointTriggeredLatch::countDown, "savepointTriggeredLatch");
+        executor.execute(
+                () -> {
+                    inputEndedLatch.await();
+                    savepointResult.accept(harness.streamTask, checkpointId);
+                },
+                "savepointResult");
+
+        while (harness.streamTask.isMailboxLoopRunning()) {
+            harness.streamTask.runMailboxStep();
+        }
+
+        Assert.assertEquals(expectEndInput, TestBoundedOneInputStreamOperator.isInputEnded());
+    }
+
+    @Test
     public void testCleanUpExceptionSuppressing() throws Exception {
         OneInputStreamTaskTestHarness<String, String> testHarness =
                 new OneInputStreamTaskTestHarness<>(
-                        OneInputStreamTask::new,
-                        BasicTypeInfo.STRING_TYPE_INFO,
-                        BasicTypeInfo.STRING_TYPE_INFO);
+                        OneInputStreamTask::new, STRING_TYPE_INFO, STRING_TYPE_INFO);
 
         testHarness.setupOutputForSingletonOperatorChain();
 
@@ -573,8 +715,7 @@ public class StreamTaskTest extends TestLogger {
 
         streamTask.triggerCheckpointAsync(
                 new CheckpointMetaData(42L, 1L),
-                CheckpointOptions.forCheckpointWithDefaultLocation(),
-                false);
+                CheckpointOptions.forCheckpointWithDefaultLocation());
 
         try {
             task.waitForTaskCompletion(false);
@@ -625,8 +766,7 @@ public class StreamTaskTest extends TestLogger {
 
         streamTask.triggerCheckpointAsync(
                 new CheckpointMetaData(42L, 1L),
-                CheckpointOptions.forCheckpointWithDefaultLocation(),
-                false);
+                CheckpointOptions.forCheckpointWithDefaultLocation());
 
         final Throwable uncaughtException = uncaughtExceptionHandler.waitForUncaughtException();
         assertThat(uncaughtException, is(failingCause));
@@ -676,8 +816,7 @@ public class StreamTaskTest extends TestLogger {
             streamTask
                     .triggerCheckpointAsync(
                             new CheckpointMetaData(42L, 1L),
-                            CheckpointOptions.forCheckpointWithDefaultLocation(),
-                            false)
+                            CheckpointOptions.forCheckpointWithDefaultLocation())
                     .get();
 
             // wait for the completion of the async task
@@ -792,8 +931,7 @@ public class StreamTaskTest extends TestLogger {
             final long checkpointId = 42L;
             streamTask.triggerCheckpointAsync(
                     new CheckpointMetaData(checkpointId, 1L),
-                    CheckpointOptions.forCheckpointWithDefaultLocation(),
-                    false);
+                    CheckpointOptions.forCheckpointWithDefaultLocation());
 
             acknowledgeCheckpointLatch.await();
 
@@ -882,8 +1020,7 @@ public class StreamTaskTest extends TestLogger {
         final long checkpointId = 42L;
         task.streamTask.triggerCheckpointAsync(
                 new CheckpointMetaData(checkpointId, 1L),
-                CheckpointOptions.forCheckpointWithDefaultLocation(),
-                false);
+                CheckpointOptions.forCheckpointWithDefaultLocation());
 
         rawKeyedStateHandleFuture.awaitRun();
 
@@ -968,8 +1105,7 @@ public class StreamTaskTest extends TestLogger {
 
             task.streamTask.triggerCheckpointAsync(
                     new CheckpointMetaData(42L, 1L),
-                    CheckpointOptions.forCheckpointWithDefaultLocation(),
-                    false);
+                    CheckpointOptions.forCheckpointWithDefaultLocation());
 
             checkpointCompletedLatch.await(30, TimeUnit.SECONDS);
 
@@ -2098,6 +2234,99 @@ public class StreamTaskTest extends TestLogger {
         @Override
         public void notifyCheckpointComplete(long checkpointId) {
             throw new ExpectedTestException();
+        }
+    }
+
+    /**
+     * A {@link StreamTask} that register a single timer that waits for a cancellation and then
+     * emits some data. The assumption is that output remains available until the future returned
+     * from {@link AbstractInvokable#cancel()} is completed. Public * access to allow reflection in
+     * {@link Task}.
+     */
+    public static class StreamTaskWithBlockingTimer extends StreamTask {
+        static volatile CompletableFuture<Void> timerStarted;
+        static volatile CompletableFuture<Void> timerFinished;
+        static volatile CompletableFuture<Void> invokableCancelled;
+
+        public static void reset() {
+            timerStarted = new CompletableFuture<>();
+            timerFinished = new CompletableFuture<>();
+            invokableCancelled = new CompletableFuture<>();
+        }
+
+        // public access to allow reflection in Task
+        public StreamTaskWithBlockingTimer(Environment env) throws Exception {
+            super(env);
+            super.inputProcessor = getInputProcessor();
+            getProcessingTimeServiceFactory()
+                    .createProcessingTimeService(mainMailboxExecutor)
+                    .registerTimer(0, unused -> onProcessingTime());
+        }
+
+        @Override
+        protected void cancelTask() throws Exception {
+            super.cancelTask();
+            invokableCancelled.complete(null);
+        }
+
+        private void onProcessingTime() {
+            try {
+                timerStarted.complete(null);
+                waitForCancellation();
+                emit();
+                timerFinished.complete(null);
+            } catch (Throwable e) { // assertion is Error
+                timerFinished.completeExceptionally(e);
+            }
+        }
+
+        private void waitForCancellation() {
+            invokableCancelled.join();
+            // allow network resources to be closed mistakenly
+            for (int i = 0; i < 10; i++) {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    // ignore: can be interrupted by TaskCanceller/Interrupter
+                }
+            }
+        }
+
+        private void emit() throws IOException {
+            checkState(getEnvironment().getAllWriters().length > 0);
+            for (ResultPartitionWriter writer : getEnvironment().getAllWriters()) {
+                assertFalse(writer.isReleased());
+                assertFalse(writer.isFinished());
+                writer.emitRecord(ByteBuffer.allocate(10), 0);
+            }
+        }
+
+        @Override
+        protected void init() {}
+
+        private static StreamInputProcessor getInputProcessor() {
+            return new StreamInputProcessor() {
+
+                @Override
+                public InputStatus processInput() {
+                    return InputStatus.NOTHING_AVAILABLE;
+                }
+
+                @Override
+                public CompletableFuture<Void> prepareSnapshot(
+                        ChannelStateWriter channelStateWriter, long checkpointId) {
+                    return CompletableFuture.completedFuture(null);
+                }
+
+                @Override
+                public CompletableFuture<?> getAvailableFuture() {
+                    return new CompletableFuture<>();
+                }
+
+                @Override
+                public void close() {}
+            };
         }
     }
 }

@@ -70,9 +70,17 @@ import static org.junit.Assert.assertTrue;
  * Tests for verifying that the {@link SourceOperator} as a task input can be integrated well with
  * {@link org.apache.flink.streaming.runtime.io.StreamOneInputProcessor}.
  */
-public class SourceOperatorStreamTaskTest {
+public class SourceOperatorStreamTaskTest extends SourceStreamTaskTestBase {
     private static final OperatorID OPERATOR_ID = new OperatorID();
     private static final int NUM_RECORDS = 10;
+
+    @Test
+    public void testMetrics() throws Exception {
+        testMetrics(
+                SourceOperatorStreamTask::new,
+                new SourceOperatorFactory<>(
+                        new MockSource(Boundedness.BOUNDED, 1), WatermarkStrategy.noWatermarks()));
+    }
 
     /**
      * Tests that the stream operator can snapshot and restore the operator state of chained
@@ -98,7 +106,7 @@ public class SourceOperatorStreamTaskTest {
 
             final CheckpointOptions checkpointOptions =
                     new CheckpointOptions(
-                            CheckpointType.SYNC_SAVEPOINT,
+                            CheckpointType.SAVEPOINT_TERMINATE,
                             CheckpointStorageLocationReference.getDefault());
             triggerCheckpointWaitForFinish(testHarness, checkpointId, checkpointOptions);
 
@@ -202,7 +210,7 @@ public class SourceOperatorStreamTaskTest {
         Future<Boolean> checkpointFuture =
                 testHarness
                         .getStreamTask()
-                        .triggerCheckpointAsync(checkpointMetaData, checkpointOptions, true);
+                        .triggerCheckpointAsync(checkpointMetaData, checkpointOptions);
 
         // Wait until the checkpoint finishes.
         // We have to mark the source reader as available here, otherwise the runMailboxStep() call

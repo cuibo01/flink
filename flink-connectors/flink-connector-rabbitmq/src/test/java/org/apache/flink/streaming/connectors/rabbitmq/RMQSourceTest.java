@@ -42,9 +42,12 @@ import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.Delivery;
 import com.rabbitmq.client.Envelope;
+import org.hamcrest.CustomTypeSafeMatcher;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.mockito.Mockito;
 import org.mockito.internal.stubbing.answers.CallsRealMethods;
 import org.mockito.invocation.InvocationOnMock;
@@ -138,6 +141,8 @@ public class RMQSourceTest {
         sourceThread.join();
     }
 
+    @Rule public ExpectedException thrown = ExpectedException.none();
+
     @Test
     public void throwExceptionIfConnectionFactoryReturnNull() throws Exception {
         RMQConnectionConfig connectionConfig = Mockito.mock(RMQConnectionConfig.class);
@@ -158,6 +163,25 @@ public class RMQSourceTest {
     }
 
     @Test
+    public void testResourceCleanupOnOpenFailure() throws Exception {
+        RMQConnectionConfig connectionConfig = Mockito.mock(RMQConnectionConfig.class);
+        ConnectionFactory connectionFactory = Mockito.mock(ConnectionFactory.class);
+        Connection connection = Mockito.mock(Connection.class);
+        Mockito.when(connectionConfig.getConnectionFactory()).thenReturn(connectionFactory);
+        Mockito.when(connectionConfig.getHost()).thenReturn("hostDummy");
+        Mockito.when(connectionFactory.newConnection()).thenReturn(connection);
+        Mockito.when(connection.createChannel()).thenThrow(new IOException());
+
+        RMQSource<String> rmqSource =
+                new RMQSource<>(
+                        connectionConfig, "queueDummy", true, new StringDeserializationScheme());
+        thrown.expect(RuntimeException.class);
+        thrown.expectMessage("Cannot create RMQ connection with queueDummy at hostDummy");
+        rmqSource.open(new Configuration());
+        Mockito.verify(rmqSource.connection, Mockito.atLeastOnce()).close();
+    }
+
+    @Test
     public void testOpenCallDeclaresQueueInStandardMode() throws Exception {
         FunctionInitializationContext mockContext = getMockContext();
 
@@ -175,6 +199,47 @@ public class RMQSourceTest {
         rmqSource.open(new Configuration());
 
         Mockito.verify(channel).queueDeclare(RMQTestSource.QUEUE_NAME, true, false, false, null);
+    }
+
+    @Test
+    public void testResourceCleanupOnClose() throws Exception {
+        FunctionInitializationContext mockContext = getMockContext();
+
+        RMQConnectionConfig connectionConfig = Mockito.mock(RMQConnectionConfig.class);
+        ConnectionFactory connectionFactory = Mockito.mock(ConnectionFactory.class);
+        Connection connection = Mockito.mock(Connection.class);
+        Channel channel = Mockito.mock(Channel.class);
+
+        Mockito.when(connectionConfig.getConnectionFactory()).thenReturn(connectionFactory);
+        Mockito.when(connectionFactory.newConnection()).thenReturn(connection);
+        Mockito.when(connectionConfig.getHost()).thenReturn("hostDummy");
+        Mockito.when(connection.createChannel()).thenReturn(channel);
+        Mockito.doThrow(new IOException("Consumer cancel error")).when(channel).basicCancel(any());
+        Mockito.doThrow(new IOException("Channel error")).when(channel).close();
+        Mockito.doThrow(new IOException("Connection error")).when(connection).close();
+
+        RMQSource<String> rmqSource = new RMQMockedRuntimeTestSource(connectionConfig);
+        rmqSource.initializeState(mockContext);
+        rmqSource.open(new Configuration());
+
+        thrown.expect(RuntimeException.class);
+        thrown.expectMessage("Error while cancelling RMQ consumer on queueDummy at hostDummy");
+        thrown.expect(
+                new CustomTypeSafeMatcher<RuntimeException>("should have suppressed exceptions") {
+                    @Override
+                    protected boolean matchesSafely(RuntimeException ex) {
+                        if (ex.getSuppressed().length == 0) {
+                            return false;
+                        }
+                        String expectedMsg =
+                                "Error while closing RMQ source with queueDummy at hostDummy";
+                        return ex.getSuppressed()[0].getMessage().equals(expectedMsg);
+                    }
+                });
+        rmqSource.close();
+        Mockito.verify(rmqSource.channel, Mockito.atLeastOnce()).basicCancel(any());
+        Mockito.verify(rmqSource.channel, Mockito.atLeastOnce()).close();
+        Mockito.verify(rmqSource.connection, Mockito.atLeastOnce()).close();
     }
 
     @Test
@@ -283,7 +348,8 @@ public class RMQSourceTest {
             Thread.sleep(5);
         }
 
-        // see addId in RMQTestSource.addId for the assert
+        // verify if RMQTestSource#addId was never called
+        assertEquals(0, ((RMQTestSource) source).addIdCalls);
     }
 
     /** Tests error reporting in case of invalid correlation ids. */
@@ -297,6 +363,53 @@ public class RMQSourceTest {
 
         assertNotNull(exception);
         assertTrue(exception instanceof NullPointerException);
+    }
+
+    /** Tests whether redelivered messages are acknowledged properly. */
+    @Test
+    public void testRedeliveredSessionIDsAck() throws Exception {
+        source.autoAck = false;
+
+        StreamSource<String, RMQSource<String>> src = new StreamSource<>(source);
+        AbstractStreamOperatorTestHarness<String> testHarness =
+                new AbstractStreamOperatorTestHarness<>(src, 1, 1, 0);
+        testHarness.open();
+        sourceThread.start();
+
+        while (DummySourceContext.numElementsCollected < 10) {
+            // wait until messages have been processed
+            Thread.sleep(5);
+        }
+
+        // mock message redelivery by resetting the message ID
+        long numMsgRedelivered;
+        synchronized (DummySourceContext.lock) {
+            numMsgRedelivered = DummySourceContext.numElementsCollected;
+            messageId = 0;
+        }
+        while (DummySourceContext.numElementsCollected < numMsgRedelivered + 10) {
+            // wait until some messages will be redelivered
+            Thread.sleep(5);
+        }
+
+        // ack the messages by snapshotting the state
+        final Random random = new Random(System.currentTimeMillis());
+        long lastMessageId;
+        long snapshotId = random.nextLong();
+        synchronized (DummySourceContext.lock) {
+            testHarness.snapshot(snapshotId, System.currentTimeMillis());
+            source.notifyCheckpointComplete(snapshotId);
+            lastMessageId = messageId;
+        }
+
+        // check if all the messages are being acknowledged
+        long totalNumberOfAcks = numMsgRedelivered + lastMessageId;
+        assertEquals(lastMessageId, DummySourceContext.numElementsCollected);
+        assertEquals(totalNumberOfAcks, ((RMQTestSource) source).addIdCalls);
+        Mockito.verify(source.channel, Mockito.times((int) lastMessageId))
+                .basicAck(Mockito.anyLong(), Mockito.eq(false));
+        Mockito.verify(source.channel, Mockito.times((int) numMsgRedelivered))
+                .basicReject(Mockito.anyLong(), Mockito.eq(false));
     }
 
     /** Tests whether constructor params are passed correctly. */
@@ -606,6 +719,7 @@ public class RMQSourceTest {
         private Delivery mockedDelivery;
         public Envelope mockedAMQPEnvelope;
         public AMQP.BasicProperties mockedAMQPProperties;
+        public int addIdCalls = 0;
 
         public RMQTestSource() {
             super();
@@ -705,6 +819,7 @@ public class RMQSourceTest {
 
         @Override
         protected boolean addId(String uid) {
+            addIdCalls++;
             assertEquals(false, autoAck);
             return super.addId(uid);
         }

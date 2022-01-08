@@ -70,7 +70,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.IntStream;
 
-import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.*;
+import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.IDENTIFIER;
+import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.TIMESTAMP_TIME_UNIT;
+import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.WRITE_INT64_TIMESTAMP;
 import static org.junit.Assert.assertEquals;
 
 /** Test for {@link ParquetRowDataBuilder} and {@link ParquetRowDataWriter}. */

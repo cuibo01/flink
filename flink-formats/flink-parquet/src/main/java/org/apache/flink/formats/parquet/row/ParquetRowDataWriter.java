@@ -46,9 +46,16 @@ import java.sql.Timestamp;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.*;
+import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.IDENTIFIER;
+import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.TIMESTAMP_TIME_UNIT;
+import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.WRITE_INT64_TIMESTAMP;
 import static org.apache.flink.formats.parquet.utils.ParquetSchemaConverter.computeMinBytesForDecimalPrecision;
-import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.*;
+import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.JULIAN_EPOCH_OFFSET_DAYS;
+import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.MICROS_PER_MILLISECOND;
+import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.MILLIS_IN_DAY;
+import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.NANOS_PER_MICROSECONDS;
+import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.NANOS_PER_MILLISECOND;
+import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.NANOS_PER_SECOND;
 
 /** Writes a record to the Parquet API with the expected schema in order to be written to a file. */
 public class ParquetRowDataWriter {
@@ -520,7 +527,7 @@ public class ParquetRowDataWriter {
         } else {
             Timestamp timestamp = timestampData.toTimestamp();
             mills = timestamp.getTime();
-            nanosOfMillisecond = timestamp.getNanos() & NANOS_PER_MILLISECOND;
+            nanosOfMillisecond = timestamp.getNanos() % NANOS_PER_MILLISECOND;
         }
         return convertInt64ToLong(mills, nanosOfMillisecond);
     }

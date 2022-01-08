@@ -37,8 +37,9 @@ import org.apache.parquet.schema.Types;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.*;
+import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.IDENTIFIER;
 import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.TIMESTAMP_TIME_UNIT;
+import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.WRITE_INT64_TIMESTAMP;
 
 /** Schema converter converts Parquet schema to and from Flink internal types. */
 public class ParquetSchemaConverter {

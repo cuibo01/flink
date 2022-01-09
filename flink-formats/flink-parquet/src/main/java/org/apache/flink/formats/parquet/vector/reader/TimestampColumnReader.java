@@ -131,11 +131,7 @@ public class TimestampColumnReader extends AbstractColumnReader<WritableTimestam
             org.apache.parquet.column.Dictionary dictionary,
             int id,
             LogicalTypeAnnotation.TimeUnit timeUnit) {
-        Binary binary = dictionary.decodeToBinary(id);
-        Preconditions.checkArgument(
-                binary.length() == 8, "Timestamp with int64 should be 8 bytes.");
-        ByteBuffer buffer = binary.toByteBuffer().order(ByteOrder.LITTLE_ENDIAN);
-        return int64ToTimestamp(utcTimestamp, buffer.getLong(), timeUnit);
+        return int64ToTimestamp(utcTimestamp, dictionary.decodeToLong(id), timeUnit);
     }
 
     public static TimestampData decodeInt96ToTimestamp(

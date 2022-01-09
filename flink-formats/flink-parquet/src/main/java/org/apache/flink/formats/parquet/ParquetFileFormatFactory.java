@@ -65,7 +65,7 @@ public class ParquetFileFormatFactory implements BulkReaderFormatFactory, BulkWr
     public static final ConfigOption<String> TIMESTAMP_TIME_UNIT =
             key("timestamp.time.unit")
                     .stringType()
-                    .defaultValue("millis")
+                    .defaultValue("micros")
                     .withDescription(
                             "Store parquet int64/LogicalTypes timestamps in this time unit, value is nanos/micros/millis");
 

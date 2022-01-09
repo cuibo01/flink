@@ -90,21 +90,21 @@ public class ParquetTimestampITCase extends FsStreamingSinkITCaseBase {
                                         "a",
                                         Timestamp.valueOf("2020-05-03 07:00:00.000000000"),
                                         "05-03-2020",
-                                        "7"));
+                                        "07"));
                         add(
                                 Row.of(
                                         Integer.valueOf(2),
                                         "p",
                                         Timestamp.valueOf("2020-05-03 08:01:01.111111111"),
                                         "05-03-2020",
-                                        "8"));
+                                        "08"));
                         add(
                                 Row.of(
                                         Integer.valueOf(3),
                                         "x",
                                         Timestamp.valueOf("2020-05-03 09:02:02.222222222"),
                                         "05-03-2020",
-                                        "9"));
+                                        "09"));
                         add(
                                 Row.of(
                                         Integer.valueOf(4),
@@ -134,34 +134,34 @@ public class ParquetTimestampITCase extends FsStreamingSinkITCaseBase {
                                         "a",
                                         Timestamp.valueOf("2020-05-03 07:00:00.000000000"),
                                         "20200503",
-                                        "7"));
+                                        "07"));
                         add(
                                 Row.of(
                                         Integer.valueOf(2),
                                         "p",
                                         Timestamp.valueOf("2020-05-03 08:01:01.111111111"),
                                         "20200503",
-                                        "8"));
+                                        "08"));
                         add(
                                 Row.of(
                                         Integer.valueOf(3),
                                         "x",
                                         Timestamp.valueOf("2020-05-03 09:02:02.222222222"),
                                         "20200503",
-                                        "9"));
+                                        "09"));
                         add(
                                 Row.of(
                                         Integer.valueOf(4),
                                         "x",
-                                        Timestamp.valueOf("2020-05-03 10:03:03.333333333"),
-                                        "20200503",
+                                        Timestamp.valueOf("2020-05-04 10:03:03.333333333"),
+                                        "20200504",
                                         "10"));
                         add(
                                 Row.of(
                                         Integer.valueOf(5),
                                         "x",
-                                        Timestamp.valueOf("2020-05-03 11:04:04.444444444"),
-                                        "20200503",
+                                        Timestamp.valueOf("2020-05-04 11:04:04.444444444"),
+                                        "20200504",
                                         "11"));
                     }
                 });
@@ -219,7 +219,7 @@ public class ParquetTimestampITCase extends FsStreamingSinkITCaseBase {
         ddl.append(" e string");
         ddl.append(") ");
         if (!Strings.isNullOrEmpty(partition)) {
-            ddl.append("partitioned by (d, e) ");
+            ddl.append("partitioned by ( " + partition + " ) ");
         }
         ddl.append("with ( ");
         ddl.append(" 'connector' = 'filesystem', ");

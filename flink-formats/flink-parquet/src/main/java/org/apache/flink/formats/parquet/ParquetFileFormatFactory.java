@@ -74,7 +74,8 @@ public class ParquetFileFormatFactory implements BulkReaderFormatFactory, BulkWr
                     .booleanType()
                     .defaultValue(false)
                     .withDescription(
-                            "Write parquet timestamp as int64/LogicalTypes instead of int96/OriginalTypes. Note: Timestamp will be time zone agnostic (NEVER converted to a different time zone).");
+                            "Write parquet timestamp as int64/LogicalTypes instead of int96/OriginalTypes. "
+                                    + "Note: Timestamp will be time zone agnostic (NEVER converted to a different time zone).");
 
     @Override
     public BulkDecodingFormat<RowData> createDecodingFormat(

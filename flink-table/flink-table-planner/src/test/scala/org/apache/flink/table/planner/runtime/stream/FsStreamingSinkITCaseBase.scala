@@ -145,8 +145,8 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
       TimestampData.fromLocalDateTime(localDateTime).getMillisecond
     }
 
-    test(getDataStream(fun), "default", "MM-dd-yyyy HH:mm:ss", "$d $e:00:00", if (partition) "d,e" else "",
-      "process-time", "1h", getData, policy)
+    test(getDataStream(fun), "default", "MM-dd-yyyy HH:mm:ss", "$d $e:00:00",
+      if (partition) "d,e" else "", "process-time", "1h", getData, policy)
   }
 
   private def test(dataStream: DataStream[Row],
@@ -165,7 +165,8 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
 
     tEnv.createTemporaryView("my_table", dataStream, $("a"), $("b"), $("c"), $("d"), $("e"))
 
-    val ddl: String = getDDL(timeExtractorKind, timeExtractorFormatterPattern, timeExtractorPattern, partition, commitTrigger, commitDelay, policy, successFileName)
+    val ddl: String = getDDL(timeExtractorKind, timeExtractorFormatterPattern,
+      timeExtractorPattern, partition, commitTrigger, commitDelay, policy, successFileName)
     tEnv.executeSql(ddl)
 
     tEnv.sqlQuery("select * from my_table").executeInsert("sink_table").await()
@@ -173,7 +174,9 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
     check("select * from sink_table", dataTest)
   }
 
-  def getDDL(timeExtractorKind: String, timeExtractorFormatterPattern: String, timeExtractorPattern: String, partition: String, commitTrigger: String, commitDelay: String, policy: String, successFileName: String) = {
+  def getDDL(timeExtractorKind: String, timeExtractorFormatterPattern: String,
+             timeExtractorPattern: String, partition: String, commitTrigger: String,
+             commitDelay: String, policy: String, successFileName: String) = {
     val ddl =
       s"""
          |create table sink_table (

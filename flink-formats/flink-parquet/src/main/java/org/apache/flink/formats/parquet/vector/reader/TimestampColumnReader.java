@@ -63,7 +63,7 @@ public class TimestampColumnReader extends AbstractColumnReader<WritableTimestam
         checkTypeName();
         if (actualName == PrimitiveType.PrimitiveTypeName.INT64) {
             timeUnit =
-                    ((LogicalTypeAnnotation.TimeLogicalTypeAnnotation)
+                    ((LogicalTypeAnnotation.TimestampLogicalTypeAnnotation)
                                     descriptor.getPrimitiveType().getLogicalTypeAnnotation())
                             .getUnit();
         } else {

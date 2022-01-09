@@ -252,7 +252,7 @@ public class ParquetTimestampITCase extends FsStreamingSinkITCaseBase {
         ddl.append(" 'format'='parquet', ");
         ddl.append(" 'parquet." + UTC_TIMEZONE.key() + "' = '" + timezone + "', ");
         ddl.append(" 'parquet." + TIMESTAMP_TIME_UNIT.key() + "' = '" + timeunit + "', ");
-        ddl.append(" 'parquet." + WRITE_INT64_TIMESTAMP.key() + "' = '" + useInt64 + "', ");
+        ddl.append(" 'parquet." + WRITE_INT64_TIMESTAMP.key() + "' = '" + useInt64 + "'");
         ddl.append(") ");
         return ddl.toString();
     }

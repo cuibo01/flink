@@ -73,7 +73,7 @@ public final class ParquetDictionary implements Dictionary {
                     true,
                     dictionary,
                     id,
-                    ((LogicalTypeAnnotation.TimeLogicalTypeAnnotation)
+                    ((LogicalTypeAnnotation.TimestampLogicalTypeAnnotation)
                                     descriptor.getPrimitiveType().getLogicalTypeAnnotation())
                             .getUnit());
         }

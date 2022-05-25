@@ -24,6 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+<a name="jdbc-sql-connector"></a>
+
 # JDBC SQL 连接器
 
 {{< label "Scan Source: Bounded" >}}
@@ -35,23 +37,28 @@ JDBC 连接器允许使用 JDBC 驱动向任意类型的关系型数据库读取
 
 如果在 DDL 中定义了主键，JDBC sink 将以 upsert 模式与外部系统交换 UPDATE/DELETE 消息；否则，它将以 append 模式与外部系统交换消息且不支持消费 UPDATE/DELETE 消息。
 
+<a name="dependencies"></a>
+
 依赖
 ------------
 
 {{< sql_download_table "jdbc" >}}
 
+JDBC 连接器不是二进制发行版的一部分，请查阅[这里]({{< ref "docs/dev/configuration/overview" >}})了解如何在集群运行中引用 JDBC 连接器。
 
 在连接到具体数据库时，也需要对应的驱动依赖，目前支持的驱动如下：
 
 | Driver      |      Group Id      |      Artifact Id       |      JAR         |
 | :-----------| :------------------| :----------------------| :----------------|
 | MySQL       |       `mysql`      | `mysql-connector-java` | [下载](https://repo.maven.apache.org/maven2/mysql/mysql-connector-java/) |
+| Oracle      | `com.oracle.database.jdbc` |        `ojdbc8`        | [下载](https://mvnrepository.com/artifact/com.oracle.database.jdbc/ojdbc8)
 | PostgreSQL  |  `org.postgresql`  |      `postgresql`      | [下载](https://jdbc.postgresql.org/download.html) |
-| Derby       | `org.apache.derby` |        `derby`         | [下载](http://db.apache.org/derby/derby_downloads.html) |
+| Derby       | `org.apache.derby` |        `derby`         | [下载](http://db.apache.org/derby/derby_downloads.html) | |
+
+当前，JDBC 连接器和驱动不在 Flink 二进制发布包中，请参阅[这里]({{< ref "docs/dev/configuration" >}})了解在集群上执行时何连接它们。
 
 
-当前，JDBC 连接器和驱动不在 Flink 二进制发布包中，请参阅[这里]({{< ref "docs/dev/datastream/project-configuration" >}})了解在集群上执行时何连接它们。
-
+<a name="how-to-create-a-jdbc-table"></a>
 
 如何创建 JDBC 表
 ----------------
@@ -84,6 +91,8 @@ SELECT * FROM myTopic
 LEFT JOIN MyUserTable FOR SYSTEM_TIME AS OF myTopic.proctime
 ON myTopic.key = MyUserTable.id;
 ```
+
+<a name="connector-options"></a>
 
 连接器参数
 ----------------
@@ -253,8 +262,12 @@ ON myTopic.key = MyUserTable.id;
     </tbody>
 </table>
 
+<a name="features"></a>
+
 特性
 --------
+
+<a name="key-handling"></a>
 
 ### 键处理
 
@@ -263,6 +276,8 @@ ON myTopic.key = MyUserTable.id;
 在 upsert 模式下，Flink 将根据主键判断插入新行或者更新已存在的行，这种方式可以确保幂等性。为了确保输出结果是符合预期的，推荐为表定义主键并且确保主键是底层数据库中表的唯一键或主键。在 append 模式下，Flink 会把所有记录解释为 INSERT 消息，如果违反了底层数据库中主键或者唯一约束，INSERT 插入可能会失败。
 
 有关 PRIMARY KEY 语法的更多详细信息，请参见 [CREATE TABLE DDL]({{< ref "docs/dev/table/sql/create" >}}#create-table)。
+
+<a name="partitioned-scan"></a>
 
 ### 分区扫描
 
@@ -276,6 +291,8 @@ ON myTopic.key = MyUserTable.id;
 - `scan.partition.lower-bound`：第一个分区的最小值。
 - `scan.partition.upper-bound`：最后一个分区的最大值。
 
+<a name="lookup-cache"></a>
+
 ### Lookup Cache
 
 JDBC 连接器可以用在时态表关联中作为一个可 lookup 的 source (又称为维表)，当前只支持同步的查找模式。
@@ -287,7 +304,9 @@ lookup cache 的主要目的是用于提高时态表关联 JDBC 连接器的性�
 当缓存命中最大缓存行 `lookup.cache.max-rows` 或当行超过最大存活时间 `lookup.cache.ttl` 时，缓存中最老的行将被设置为已过期。
 缓存中的记录可能不是最新的，用户可以将 `lookup.cache.ttl` 设置为一个更小的值以获得更好的刷新数据，但这可能会增加发送到数据库的请求数。所以要做好吞吐量和正确性之间的平衡。
 
-默认情况下，flink 会缓存主键的空查询结果，您可以通过将 `lookup.cache.caching-missing-key` 设置为 false 来切换行为。
+默认情况下，flink 会缓存主键的空查询结果，你可以通过将 `lookup.cache.caching-missing-key` 设置为 false 来切换行为。
+
+<a name="idempotent-writes"></a>
 
 ### 幂等写入
 
@@ -312,45 +331,59 @@ lookup cache 的主要目的是用于提高时态表关联 JDBC 连接器的性�
             <td>INSERT .. ON DUPLICATE KEY UPDATE ..</td>
         </tr>
         <tr>
+            <td>Oracle</td>
+            <td>MERGE INTO .. USING (..) ON (..) <br>
+                WHEN MATCHED THEN UPDATE SET (..) <br>
+                WHEN NOT MATCHED THEN INSERT (..) <br>
+                VALUES (..)</td>
+        <tr>
             <td>PostgreSQL</td>
             <td>INSERT .. ON CONFLICT .. DO UPDATE SET ..</td>
         </tr>
     </tbody>
 </table>
 
-### Postgres 数据库作为 Catalog
+<a name="jdbc-catalog"></a>
+
+JDBC Catalog
+------------
 
 `JdbcCatalog` 允许用户通过 JDBC 协议将 Flink 连接到关系数据库。
 
-目前，`PostgresCatalog` 是 JDBC Catalog 的唯一实现，`PostgresCatalog` 只支持有限的 `Catalog` 方法，包括：
+目前，JDBC Catalog 有两个实现，即 Postgres Catalog 和 MySQL Catalog。目前支持如下 catalog 方法。其他方法目前尚不支持。
 
 ```java
-// Postgres Catalog 支持的方法
-PostgresCatalog.databaseExists(String databaseName)
-PostgresCatalog.listDatabases()
-PostgresCatalog.getDatabase(String databaseName)
-PostgresCatalog.listTables(String databaseName)
-PostgresCatalog.getTable(ObjectPath tablePath)
-PostgresCatalog.tableExists(ObjectPath tablePath)
+// Postgres Catalog & MySQL Catalog 支持的方法
+databaseExists(String databaseName);
+listDatabases();
+getDatabase(String databaseName);
+listTables(String databaseName);
+getTable(ObjectPath tablePath);
+tableExists(ObjectPath tablePath);
 ```
 
-其他的 `Catalog` 方法现在还是不支持的。
+其他的 `Catalog` 方法现在尚不支持。
 
-#### PostgresCatalog 的使用
+<a name="usage-of-jdbc-catalog"></a>
 
-请参阅 [Dependencies](#dependencies) 部分了解如何配置 JDBC 连接器和 Postgres 驱动。
+### JDBC Catalog 的使用
 
-Postgres catalog 支持以下参数:
+本小节主要描述如果创建并使用 Postgres Catalog 或 MySQL Catalog。
+请参阅 [Dependencies](#dependencies) 部分了解如何配置 JDBC 连接器和相应的驱动。
+
+JDBC catalog 支持以下参数:
 - `name`：必填，catalog 的名称。
 - `default-database`：必填，默认要连接的数据库。
-- `username`：必填，Postgres 账户的用户名。
+- `username`：必填，Postgres/MySQL 账户的用户名。
 - `password`：必填，账户的密码。
-- `base-url`：必填，应该符合 `"jdbc:postgresql://<ip>:<port>"` 的格式，同时这里不应该包含数据库名。
+- `base-url`：必填，（不应该包含数据库名）
+  - 对于 Postgres Catalog `base-url` 应为 `"jdbc:postgresql://<ip>:<port>"` 的格式。
+  - 对于 MySQL Catalog `base-url` 应为 `"jdbc:mysql://<ip>:<port>"` 的格式。
 
 {{< tabs "10bd8bfb-674c-46aa-8a36-385537df5791" >}}
 {{< tab "SQL" >}}
 ```sql
-CREATE CATALOG mypg WITH(
+CREATE CATALOG my_catalog WITH(
     'type' = 'jdbc',
     'default-database' = '...',
     'username' = '...',
@@ -358,7 +391,7 @@ CREATE CATALOG mypg WITH(
     'base-url' = '...'
 );
 
-USE CATALOG mypg;
+USE CATALOG my_catalog;
 ```
 {{< /tab >}}
 {{< tab "Java" >}}
@@ -367,17 +400,17 @@ USE CATALOG mypg;
 EnvironmentSettings settings = EnvironmentSettings.inStreamingMode();
 TableEnvironment tableEnv = TableEnvironment.create(settings);
 
-String name            = "mypg";
+String name            = "my_catalog";
 String defaultDatabase = "mydb";
 String username        = "...";
 String password        = "...";
 String baseUrl         = "..."
 
 JdbcCatalog catalog = new JdbcCatalog(name, defaultDatabase, username, password, baseUrl);
-tableEnv.registerCatalog("mypg", catalog);
+tableEnv.registerCatalog("my_catalog", catalog);
 
 // 设置 JdbcCatalog 为会话的当前 catalog
-tableEnv.useCatalog("mypg");
+tableEnv.useCatalog("my_catalog");
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
@@ -386,17 +419,17 @@ tableEnv.useCatalog("mypg");
 val settings = EnvironmentSettings.inStreamingMode()
 val tableEnv = TableEnvironment.create(settings)
 
-val name            = "mypg"
+val name            = "my_catalog"
 val defaultDatabase = "mydb"
 val username        = "..."
 val password        = "..."
 val baseUrl         = "..."
 
 val catalog = new JdbcCatalog(name, defaultDatabase, username, password, baseUrl)
-tableEnv.registerCatalog("mypg", catalog)
+tableEnv.registerCatalog("my_catalog", catalog)
 
 // 设置 JdbcCatalog 为会话的当前 catalog
-tableEnv.useCatalog("mypg")
+tableEnv.useCatalog("my_catalog")
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
@@ -406,17 +439,17 @@ from pyflink.table.catalog import JdbcCatalog
 environment_settings = EnvironmentSettings.in_streaming_mode()
 t_env = TableEnvironment.create(environment_settings)
 
-name = "mypg"
+name = "my_catalog"
 default_database = "mydb"
 username = "..."
 password = "..."
 base_url = "..."
 
 catalog = JdbcCatalog(name, default_database, username, password, base_url)
-t_env.register_catalog("mypg", catalog)
+t_env.register_catalog("my_catalog", catalog)
 
 # 设置 JdbcCatalog 为会话的当前 catalog
-t_env.use_catalog("mypg")
+t_env.use_catalog("my_catalog")
 ```
 {{< /tab >}}
 {{< tab "YAML" >}}
@@ -424,11 +457,11 @@ t_env.use_catalog("mypg")
 
 execution:
     ...
-    current-catalog: mypg  # 设置 JdbcCatalog 为会话的当前 catalog
+    current-catalog: my_catalog  # 设置目标 JdbcCatalog 为会话的当前 catalog
     current-database: mydb
 
 catalogs:
-   - name: mypg
+   - name: my_catalog
      type: jdbc
      default-database: mydb
      username: ...
@@ -437,6 +470,12 @@ catalogs:
 ```
 {{< /tab >}}
 {{< /tabs >}}
+
+<a name="jdbc-catalog-for-postgresql"></a>
+
+### JDBC Catalog for PostgreSQL
+
+<a name="postgresql-metaspace-mapping"></a>
 
 #### PostgreSQL 元空间映射
 
@@ -467,15 +506,51 @@ SELECT * FROM mypg.mydb.`custom_schema.test_table2`
 SELECT * FROM mydb.`custom_schema.test_table2`;
 SELECT * FROM `custom_schema.test_table2`;
 ```
+<a name="jdbc-catalog-for-mysql"></a>
+
+### JDBC Catalog for MySQL
+
+<a name="mysql-metaspace-mapping"></a>
+
+#### MySQL 元空间映射
+
+MySQL 实例中的数据库与 MySQL Catalog 注册的 catalog 下的数据库处于同一个映射层级。一个 MySQL 实例可以拥有多个数据库，每个数据库可以包含多张表。
+在 Flink 中，当查询由 MySQL catalog 注册的表时，用户可以使用 `database.table_name` 或只使用 `table_name`，其中 `database` 是可选的，默认值为创建 MySQL Catalog 时指定的默认数据库。
+
+因此，Flink Catalog 和 MySQL catalog 之间的元空间映射如下：
+
+| Flink Catalog Metaspace Structure    |   MySQL Metaspace Structure         |
+| :------------------------------------| :-----------------------------------|
+| catalog name (defined in Flink only) | N/A                                 |
+| database name                        | database name                       |
+| table name                           | table_name                          |
+
+Flink 中的 MySQL 表的完整路径应该是 ``"`<catalog>`.`<db>`.`<table>`"``。
+
+这里提供了一些访问 MySQL 表的例子：
+
+```sql
+-- 扫描 默认数据库中的 'test_table' 表
+SELECT * FROM mysql_catalog.mydb.test_table;
+SELECT * FROM mydb.test_table;
+SELECT * FROM test_table;
+
+-- 扫描 'given_database' 数据库中的 'test_table2' 表，
+SELECT * FROM mysql_catalog.given_database.test_table2;
+SELECT * FROM given_database.test_table2;
+```
+
+<a name="data-type-mapping"></a>
 
 数据类型映射
 ----------------
-Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、PostgreSQL、Derby 等。其中，Derby 通常是用于测试目的。下表列出了从关系数据库数据类型到 Flink SQL 数据类型的类型映射，映射表可以使得在 Flink 中定义 JDBC 表更加简单。
+Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、Oracle、PostgreSQL、Derby 等。其中，Derby 通常是用于测试目的。下表列出了从关系数据库数据类型到 Flink SQL 数据类型的类型映射，映射表可以使得在 Flink 中定义 JDBC 表更加简单。
 
 <table class="table table-bordered">
     <thead>
       <tr>
         <th class="text-left"><a href="https://dev.mysql.com/doc/refman/8.0/en/data-types.html">MySQL type</a></th>
+        <th class="text-left"><a href="https://docs.oracle.com/database/121/SQLRF/sql_elements001.htm#SQLRF30020">Oracle type</a></th>
         <th class="text-left"><a href="https://www.postgresql.org/docs/12/datatype.html">PostgreSQL type</a></th>
         <th class="text-left"><a href="{{< ref "docs/dev/table/types" >}}">Flink SQL type</a></th>
       </tr>
@@ -484,12 +559,14 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
     <tr>
       <td><code>TINYINT</code></td>
       <td></td>
+      <td></td>
       <td><code>TINYINT</code></td>
     </tr>
     <tr>
       <td>
         <code>SMALLINT</code><br>
         <code>TINYINT UNSIGNED</code></td>
+      <td></td>
       <td>
         <code>SMALLINT</code><br>
         <code>INT2</code><br>
@@ -502,6 +579,7 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
         <code>INT</code><br>
         <code>MEDIUMINT</code><br>
         <code>SMALLINT UNSIGNED</code></td>
+      <td></td>
       <td>
         <code>INTEGER</code><br>
         <code>SERIAL</code></td>
@@ -511,6 +589,7 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
       <td>
         <code>BIGINT</code><br>
         <code>INT UNSIGNED</code></td>
+      <td></td>
       <td>
         <code>BIGINT</code><br>
         <code>BIGSERIAL</code></td>
@@ -519,15 +598,19 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
    <tr>
       <td><code>BIGINT UNSIGNED</code></td>
       <td></td>
+      <td></td>
       <td><code>DECIMAL(20, 0)</code></td>
     </tr>
     <tr>
       <td><code>BIGINT</code></td>
+      <td></td>
       <td><code>BIGINT</code></td>
       <td><code>BIGINT</code></td>
     </tr>
     <tr>
       <td><code>FLOAT</code></td>
+      <td>
+        <code>BINARY_FLOAT</code></td>
       <td>
         <code>REAL</code><br>
         <code>FLOAT4</code></td>
@@ -537,6 +620,7 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
       <td>
         <code>DOUBLE</code><br>
         <code>DOUBLE PRECISION</code></td>
+      <td><code>BINARY_DOUBLE</code></td>
       <td>
         <code>FLOAT8</code><br>
         <code>DOUBLE PRECISION</code></td>
@@ -545,7 +629,13 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
     <tr>
       <td>
         <code>NUMERIC(p, s)</code><br>
-         <code>DECIMAL(p, s)</code></td>
+        <code>DECIMAL(p, s)</code></td>
+      <td>
+        <code>SMALLINT</code><br> 
+        <code>FLOAT(s)</code><br> 
+        <code>DOUBLE PRECISION</code><br> 
+        <code>REAL</code><br>
+        <code>NUMBER(p, s)</code></td>
       <td>
         <code>NUMERIC(p, s)</code><br>
         <code>DECIMAL(p, s)</code></td>
@@ -554,22 +644,26 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
     <tr>
       <td>
         <code>BOOLEAN</code><br>
-         <code>TINYINT(1)</code></td>
+        <code>TINYINT(1)</code></td>
+      <td></td>
       <td><code>BOOLEAN</code></td>
       <td><code>BOOLEAN</code></td>
     </tr>
     <tr>
+      <td><code>DATE</code></td>
       <td><code>DATE</code></td>
       <td><code>DATE</code></td>
       <td><code>DATE</code></td>
     </tr>
     <tr>
       <td><code>TIME [(p)]</code></td>
+      <td><code>DATE</code></td>
       <td><code>TIME [(p)] [WITHOUT TIMEZONE]</code></td>
       <td><code>TIME [(p)] [WITHOUT TIMEZONE]</code></td>
     </tr>
     <tr>
       <td><code>DATETIME [(p)]</code></td>
+      <td><code>TIMESTAMP [(p)] [WITHOUT TIMEZONE]</code></td>
       <td><code>TIMESTAMP [(p)] [WITHOUT TIMEZONE]</code></td>
       <td><code>TIMESTAMP [(p)] [WITHOUT TIMEZONE]</code></td>
     </tr>
@@ -578,6 +672,10 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
         <code>CHAR(n)</code><br>
         <code>VARCHAR(n)</code><br>
         <code>TEXT</code></td>
+      <td>
+        <code>CHAR(n)</code><br>
+        <code>VARCHAR(n)</code><br>
+        <code>CLOB</code></td>
       <td>
         <code>CHAR(n)</code><br>
         <code>CHARACTER(n)</code><br>
@@ -591,10 +689,14 @@ Flink 支持连接到多个使用方言（dialect）的数据库，如 MySQL、P
         <code>BINARY</code><br>
         <code>VARBINARY</code><br>
         <code>BLOB</code></td>
+      <td>
+        <code>RAW(s)</code><br>
+        <code>BLOB</code></td>
       <td><code>BYTEA</code></td>
       <td><code>BYTES</code></td>
     </tr>
     <tr>
+      <td></td>
       <td></td>
       <td><code>ARRAY</code></td>
       <td><code>ARRAY</code></td>

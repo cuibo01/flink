@@ -25,7 +25,6 @@ import org.apache.flink.table.types.logical.utils.LogicalTypeChecks;
 
 import static org.apache.flink.table.codesplit.CodeSplitUtil.newName;
 import static org.apache.flink.table.planner.functions.casting.BinaryToBinaryCastRule.couldPad;
-import static org.apache.flink.table.planner.functions.casting.BinaryToBinaryCastRule.couldTrim;
 import static org.apache.flink.table.planner.functions.casting.BinaryToBinaryCastRule.trimOrPadByteArray;
 import static org.apache.flink.table.planner.functions.casting.CastRuleUtils.arrayLength;
 import static org.apache.flink.table.planner.functions.casting.CastRuleUtils.methodCall;
@@ -45,7 +44,7 @@ class StringToBinaryCastRule extends AbstractNullAwareCodeGeneratorCastRule<Stri
                         .build());
     }
 
-    /* Example generated code for BINARY(2):
+    /* Example generated code for VARBINARY(2):
 
     // legacy behavior
     isNull$0 = _myInputIsNull;
@@ -61,7 +60,9 @@ class StringToBinaryCastRule extends AbstractNullAwareCodeGeneratorCastRule<Stri
     if (!isNull$0) {
         byte[] byteArrayTerm$0 = _myInput.toBytes();
         if (byteArrayTerm$0.length <= 2) {
-            result$1 = byteArrayTerm$0;
+            // If could pad
+            result$1 = java.util.Arrays.copyOf(byteArrayTerm$0, 2);
+            // result$1 = byteArrayTerm$0 // If could not pad
         } else {
             result$1 = java.util.Arrays.copyOf(byteArrayTerm$0, 2);
         }
@@ -79,16 +80,14 @@ class StringToBinaryCastRule extends AbstractNullAwareCodeGeneratorCastRule<Stri
             String returnVariable,
             LogicalType inputLogicalType,
             LogicalType targetLogicalType) {
-        final int targetLength = LogicalTypeChecks.getLength(targetLogicalType);
-
-        final String byteArrayTerm = newName("byteArrayTerm");
-
-        if (context.legacyBehaviour()
-                || !(couldTrim(targetLength) || couldPad(targetLogicalType, targetLength))) {
+        if (context.legacyBehaviour()) {
             return new CastRuleUtils.CodeWriter()
                     .assignStmt(returnVariable, methodCall(inputTerm, "toBytes"))
                     .toString();
         } else {
+            final int targetLength = LogicalTypeChecks.getLength(targetLogicalType);
+            final String byteArrayTerm = newName("byteArrayTerm");
+
             return new CastRuleUtils.CodeWriter()
                     .declStmt(byte[].class, byteArrayTerm, methodCall(inputTerm, "toBytes"))
                     .ifStmt(

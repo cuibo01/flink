@@ -53,7 +53,6 @@ import org.apache.parquet.hadoop.ParquetOutputFormat;
 import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.hadoop.util.HadoopInputFile;
 import org.apache.parquet.io.InputFile;
-import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -74,6 +73,7 @@ import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.IDENTIFI
 import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.TIMESTAMP_TIME_UNIT;
 import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.WRITE_INT64_TIMESTAMP;
 import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for {@link ParquetRowDataBuilder} and {@link ParquetRowDataWriter}. */
 public class ParquetRowDataWriterTest {
@@ -197,10 +197,10 @@ public class ParquetRowDataWriterTest {
         int cnt = 0;
         while (!reader.reachedEnd()) {
             Row row = CONVERTER.toExternal(reader.nextRecord());
-            Assert.assertEquals(rows.get(cnt), row);
+            assertThat(row).isEqualTo(rows.get(cnt));
             cnt++;
         }
-        Assert.assertEquals(number, cnt);
+        assertThat(cnt).isEqualTo(number);
     }
 
     public void complexTypeTest(Configuration conf, boolean utcTimestamp) throws Exception {
@@ -229,7 +229,7 @@ public class ParquetRowDataWriterTest {
 
         File file = new File(path.getPath());
         final List<Row> fileContent = readParquetFile(file);
-        assertEquals(rows, fileContent);
+        assertThat(fileContent).isEqualTo(rows);
     }
 
     private static List<Row> readParquetFile(File file) throws IOException {

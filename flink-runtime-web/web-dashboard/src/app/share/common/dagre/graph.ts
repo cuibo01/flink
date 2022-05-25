@@ -16,11 +16,10 @@
  * limitations under the License.
  */
 
+import { NodesItemCorrect, NodesItemLink } from '@flink-runtime-web/interfaces';
 import { curveLinear, line } from 'd3';
 import * as dagre from 'dagre';
 import { GraphEdge, graphlib } from 'dagre';
-
-import { NodesItemCorrect, NodesItemLink } from 'interfaces';
 
 import Graph = graphlib.Graph;
 
@@ -326,9 +325,9 @@ export class NzGraph {
   generateLine(points: Array<{ x: number; y: number }>): string | null {
     const transformPoints = points;
     const lineFunction = line()
-      .x(d => ((d as unknown) as { x: number }).x)
-      .y(d => ((d as unknown) as { y: number }).y)
+      .x(d => (d as unknown as { x: number }).x)
+      .y(d => (d as unknown as { y: number }).y)
       .curve(curveLinear);
-    return lineFunction((transformPoints as unknown) as Array<[number, number]>);
+    return lineFunction(transformPoints as unknown as Array<[number, number]>);
   }
 }

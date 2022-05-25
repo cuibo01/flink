@@ -43,6 +43,10 @@ final class CastRuleUtils {
         return legacyBehaviour ? strLiteral("null") : strLiteral("NULL");
     }
 
+    static String operator(Object left, String operator, Object right) {
+        return left + operator + right;
+    }
+
     static String staticCall(Class<?> clazz, String methodName, Object... args) {
         return methodCall(className(clazz), methodName, args);
     }
@@ -78,8 +82,12 @@ final class CastRuleUtils {
         return className(clazz) + "." + fieldName;
     }
 
-    static String arrayLength(String instanceTerm) {
-        return instanceTerm + ".length";
+    static String arrayLength(String arrayTerm) {
+        return arrayTerm + ".length";
+    }
+
+    static String arrayElement(String arrayTerm, String indexTerm) {
+        return arrayTerm + "[" + indexTerm + "]";
     }
 
     static String ternaryOperator(String condition, String ifTrue, String ifFalse) {
@@ -204,6 +212,10 @@ final class CastRuleUtils {
             return stmt(varName + " = " + value);
         }
 
+        public CodeWriter assignPlusStmt(String varName, String value) {
+            return stmt(varName + " += " + value);
+        }
+
         public CodeWriter assignArrayStmt(String varName, String index, String value) {
             return stmt(varName + "[" + index + "] = " + value);
         }
@@ -230,6 +242,11 @@ final class CastRuleUtils {
             bodyWriterConsumer.accept(indexTerm, innerWriter);
             builder.append(innerWriter).append("}\n");
 
+            return this;
+        }
+
+        public CodeWriter breakStmt() {
+            builder.append("break;\n");
             return this;
         }
 

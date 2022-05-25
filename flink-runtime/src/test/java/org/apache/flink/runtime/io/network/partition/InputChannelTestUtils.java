@@ -21,6 +21,7 @@ package org.apache.flink.runtime.io.network.partition;
 import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.core.memory.MemorySegmentFactory;
 import org.apache.flink.core.memory.MemorySegmentProvider;
+import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.io.disk.NoOpFileChannelManager;
 import org.apache.flink.runtime.io.network.ConnectionID;
 import org.apache.flink.runtime.io.network.ConnectionManager;
@@ -236,6 +237,7 @@ public class InputChannelTestUtils {
                                 NoOpFileChannelManager.INSTANCE,
                                 true,
                                 bufferSize);
+        parent.setChannelStateWriter(ChannelStateWriter.NO_OP);
         ResultSubpartition subpartition = parent.getAllPartitions()[0];
         for (BufferConsumer buffer : buffers) {
             subpartition.add(buffer);
@@ -254,12 +256,13 @@ public class InputChannelTestUtils {
         private StubMemorySegmentProvider() {}
 
         @Override
-        public Collection<MemorySegment> requestMemorySegments(int numberOfSegmentsToRequest) {
+        public Collection<MemorySegment> requestUnpooledMemorySegments(
+                int numberOfSegmentsToRequest) {
             return Collections.emptyList();
         }
 
         @Override
-        public void recycleMemorySegments(Collection<MemorySegment> segments) {}
+        public void recycleUnpooledMemorySegments(Collection<MemorySegment> segments) {}
     }
 
     /** {@link MemorySegmentProvider} that provides unpooled {@link MemorySegment}s. */
@@ -271,12 +274,13 @@ public class InputChannelTestUtils {
         }
 
         @Override
-        public Collection<MemorySegment> requestMemorySegments(int numberOfSegmentsToRequest) {
+        public Collection<MemorySegment> requestUnpooledMemorySegments(
+                int numberOfSegmentsToRequest) {
             return Collections.singletonList(
                     MemorySegmentFactory.allocateUnpooledSegment(pageSize));
         }
 
         @Override
-        public void recycleMemorySegments(Collection<MemorySegment> segments) {}
+        public void recycleUnpooledMemorySegments(Collection<MemorySegment> segments) {}
     }
 }

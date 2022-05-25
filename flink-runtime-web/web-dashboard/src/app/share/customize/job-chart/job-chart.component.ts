@@ -16,8 +16,6 @@
  * limitations under the License.
  */
 
-/// <reference path="../../../../../node_modules/@antv/g2/src/index.d.ts" />
-
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -36,7 +34,7 @@ import { takeUntil } from 'rxjs/operators';
 
 import { Chart } from '@antv/g2';
 import * as G2 from '@antv/g2';
-import { JobChartService } from 'share/customize/job-chart/job-chart.service';
+import { JobChartService } from '@flink-runtime-web/share/customize/job-chart/job-chart.service';
 
 @Component({
   selector: 'flink-job-chart',
@@ -98,15 +96,15 @@ export class JobChartComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     this.cdr.detach();
-    G2.track(false);
     this.chartInstance = new G2.Chart({
       container: this.chart.nativeElement,
       height: 150,
-      forceFit: true,
+      autoFit: true,
       padding: 'auto'
     });
     this.chartInstance.legend(false);
-    this.chartInstance.source(this.data, {
+    this.chartInstance.data(this.data);
+    this.chartInstance.scale({
       time: {
         alias: 'Time',
         type: 'time',

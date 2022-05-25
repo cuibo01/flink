@@ -18,13 +18,8 @@
 
 package org.apache.flink.table.planner.plan.nodes.exec.serde;
 
-import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.expressions.FieldReferenceExpression;
 import org.apache.flink.table.expressions.ValueLiteralExpression;
-import org.apache.flink.table.module.ModuleManager;
-import org.apache.flink.table.planner.calcite.FlinkContextImpl;
-import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
-import org.apache.flink.table.planner.functions.sql.FlinkSqlOperatorTable;
 import org.apache.flink.table.planner.plan.logical.LogicalWindow;
 import org.apache.flink.table.planner.plan.logical.SessionGroupWindow;
 import org.apache.flink.table.planner.plan.logical.SlidingGroupWindow;
@@ -47,7 +42,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Tests for {@link LogicalWindow} serialization and deserialization. */
 @RunWith(Parameterized.class)
@@ -112,25 +107,13 @@ public class LogicalWindowSerdeTest {
 
     @Test
     public void testLogicalWindowSerde() throws IOException {
-        SerdeContext serdeCtx =
-                new SerdeContext(
-                        new FlinkContextImpl(
-                                false,
-                                TableConfig.getDefault(),
-                                new ModuleManager(),
-                                null,
-                                null,
-                                null),
-                        Thread.currentThread().getContextClassLoader(),
-                        FlinkTypeFactory.INSTANCE(),
-                        FlinkSqlOperatorTable.instance());
-
+        SerdeContext serdeCtx = JsonSerdeTestUtil.configuredSerdeContext();
         ObjectReader objectReader = JsonSerdeUtil.createObjectReader(serdeCtx);
         ObjectWriter objectWriter = JsonSerdeUtil.createObjectWriter(serdeCtx);
 
-        assertEquals(
-                objectReader.readValue(
-                        objectWriter.writeValueAsString(window), LogicalWindow.class),
-                window);
+        assertThat(window)
+                .isEqualTo(
+                        objectReader.readValue(
+                                objectWriter.writeValueAsString(window), LogicalWindow.class));
     }
 }

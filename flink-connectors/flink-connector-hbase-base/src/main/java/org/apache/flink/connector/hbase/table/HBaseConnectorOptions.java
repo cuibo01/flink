@@ -120,6 +120,13 @@ public class HBaseConnectorOptions {
                     .defaultValue(3)
                     .withDescription("the max retry times if lookup database failed.");
 
+    /** Flag to indicate whether to drop duplicates upon Mutation. */
+    public static final ConfigOption<String> PRECOMBINE_FIELD =
+            ConfigOptions.key("hbase.precombine.field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Flag to indicate whether to drop duplicates upon Mutation.");
+
     public static final ConfigOption<Integer> SINK_PARALLELISM = FactoryUtil.SINK_PARALLELISM;
 
     private HBaseConnectorOptions() {}

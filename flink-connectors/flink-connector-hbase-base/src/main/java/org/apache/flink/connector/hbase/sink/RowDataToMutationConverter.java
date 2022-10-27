@@ -25,6 +25,8 @@ import org.apache.flink.types.RowKind;
 
 import org.apache.hadoop.hbase.client.Mutation;
 
+import java.io.IOException;
+
 /**
  * An implementation of {@link HBaseMutationConverter} which converts {@link RowData} into {@link
  * Mutation}.
@@ -42,12 +44,12 @@ public class RowDataToMutationConverter implements HBaseMutationConverter<RowDat
     }
 
     @Override
-    public void open() {
-        this.serde = new HBaseSerde(schema, nullStringLiteral);
+    public void open(boolean dropDup) {
+        this.serde = new HBaseSerde(schema, nullStringLiteral).enableDropDup(dropDup);
     }
 
     @Override
-    public Mutation convertToMutation(RowData record) {
+    public Mutation convertToMutation(RowData record) throws IOException {
         RowKind kind = record.getRowKind();
         if (kind == RowKind.INSERT || kind == RowKind.UPDATE_AFTER) {
             return serde.createPutMutation(record);

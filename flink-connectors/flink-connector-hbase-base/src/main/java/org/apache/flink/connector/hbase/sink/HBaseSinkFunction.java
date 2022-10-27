@@ -35,7 +35,9 @@ import org.apache.hadoop.hbase.client.BufferedMutator;
 import org.apache.hadoop.hbase.client.BufferedMutatorParams;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.apache.hadoop.hbase.client.FlinkBufferedMutatorImpl;
 import org.apache.hadoop.hbase.client.RetriesExhaustedWithDetailsException;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +48,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.PRECOMBINE_FIELD;
 
 /**
  * The sink function for HBase.
@@ -109,10 +113,7 @@ public class HBaseSinkFunction<T> extends RichSinkFunction<T>
         LOG.info("start open ...");
         org.apache.hadoop.conf.Configuration config = prepareRuntimeConfiguration();
         try {
-            this.mutationConverter.open();
-            this.numPendingRequests = new AtomicLong(0);
-
-            if (null == connection) {
+           if (null == connection) {
                 this.connection = ConnectionFactory.createConnection(config);
             }
             // create a parameter instance, set the table name and custom listener reference.
@@ -122,6 +123,13 @@ public class HBaseSinkFunction<T> extends RichSinkFunction<T>
                 params.writeBufferSize(bufferFlushMaxSizeInBytes);
             }
             this.mutator = connection.getBufferedMutator(params);
+            if (this.mutator instanceof FlinkBufferedMutatorImpl) {
+                String[] dropDupField = config.get(PRECOMBINE_FIELD.key()).split(".");
+                ((FlinkBufferedMutatorImpl) this.mutator).setPreCombineField(
+                        Bytes.toBytes(dropDupField[0]), Bytes.toBytes(dropDupField[1]));
+            }
+            this.mutationConverter.open(this.mutator instanceof FlinkBufferedMutatorImpl);
+            this.numPendingRequests = new AtomicLong(0);
 
             if (bufferFlushIntervalMillis > 0 && bufferFlushMaxMutations != 1) {
                 this.executor =

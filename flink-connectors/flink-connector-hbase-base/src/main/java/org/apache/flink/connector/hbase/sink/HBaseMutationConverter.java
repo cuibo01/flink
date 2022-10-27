@@ -24,6 +24,7 @@ import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
 
+import java.io.IOException;
 import java.io.Serializable;
 
 /**
@@ -35,11 +36,11 @@ import java.io.Serializable;
 public interface HBaseMutationConverter<T> extends Serializable {
 
     /** Initialization method for the function. It is called once before conversion method. */
-    void open();
+    void open(boolean dropDup);
 
     /**
      * Converts the input record into HBase {@link Mutation}. A mutation can be a {@link Put} or
      * {@link Delete}.
      */
-    Mutation convertToMutation(T record);
+    Mutation convertToMutation(T record) throws IOException;
 }

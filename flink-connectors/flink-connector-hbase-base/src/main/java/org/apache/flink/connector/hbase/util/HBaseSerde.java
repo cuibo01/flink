@@ -28,6 +28,7 @@ import org.apache.flink.table.types.logical.DecimalType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeFamily;
 
+import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
@@ -37,6 +38,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 
 import javax.annotation.Nullable;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -75,6 +77,8 @@ public class HBaseSerde {
     private final FieldEncoder[][] qualifierEncoders;
     private final FieldDecoder[][] qualifierDecoders;
     private final GenericRowData rowWithRowKey;
+
+    private boolean dropDup;
 
     public HBaseSerde(HBaseTableSchema hbaseSchema, final String nullStringLiteral) {
         this.families = hbaseSchema.getFamilyKeys();
@@ -120,6 +124,11 @@ public class HBaseSerde {
         this.rowWithRowKey = new GenericRowData(1);
     }
 
+    public HBaseSerde enableDropDup(boolean dropDup) {
+        this.dropDup = dropDup;
+        return this;
+    }
+
     /**
      * Returns an instance of Put that writes record to HBase table.
      *
@@ -157,7 +166,7 @@ public class HBaseSerde {
      *
      * @return The appropriate instance of Delete for this use case.
      */
-    public @Nullable Delete createDeleteMutation(RowData row) {
+    public @Nullable Delete createDeleteMutation(RowData row) throws IOException {
         checkArgument(keyEncoder != null, "row key is not set.");
         byte[] rowkey = keyEncoder.encode(row, rowkeyIndex);
         if (rowkey.length == 0) {
@@ -174,7 +183,19 @@ public class HBaseSerde {
                 for (int q = 0; q < this.qualifiers[f].length; q++) {
                     // get quantifier key
                     byte[] qualifier = qualifiers[f][q];
-                    delete.addColumn(familyKey, qualifier);
+                    if (dropDup) {
+                        RowData familyRow = row.getRow(i, qualifiers[f].length);
+                        byte[] value = qualifierEncoders[f][q].encode(familyRow, q);
+                        KeyValue kv = new KeyValue(rowkey,
+                                familyKey,
+                                qualifier,
+                                delete.getTimeStamp(),
+                                KeyValue.Type.Delete, value);
+                        delete.addDeleteMarker(kv);
+                    } else {
+                        delete.addColumn(familyKey, qualifier);
+                    }
+
                 }
             }
         }

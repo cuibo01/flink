@@ -35,6 +35,8 @@ import org.apache.flink.table.factories.DynamicTableSourceFactory;
 import org.apache.flink.table.factories.FactoryUtil.TableFactoryHelper;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.client.BufferedMutator;
+import org.apache.hadoop.hbase.client.FlinkBufferedMutatorImpl;
 
 import java.time.Duration;
 import java.util.HashSet;
@@ -46,6 +48,7 @@ import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.LOOKU
 import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.LOOKUP_CACHE_MAX_ROWS;
 import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.LOOKUP_CACHE_TTL;
 import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.LOOKUP_MAX_RETRIES;
+import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.PRECOMBINE_FIELD;
 import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.NULL_STRING_LITERAL;
 import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.SINK_BUFFER_FLUSH_INTERVAL;
 import static org.apache.flink.connector.hbase.table.HBaseConnectorOptions.SINK_BUFFER_FLUSH_MAX_ROWS;
@@ -121,6 +124,10 @@ public class HBase2DynamicTableFactory
 
         String tableName = tableOptions.get(TABLE_NAME);
         Configuration hbaseConf = getHBaseConfiguration(tableOptions);
+        if (tableOptions.getOptional(PRECOMBINE_FIELD).isPresent()) {
+            hbaseConf.set(BufferedMutator.CLASSNAME_KEY, FlinkBufferedMutatorImpl.class.getName());
+            hbaseConf.set(PRECOMBINE_FIELD.key(), tableOptions.get(PRECOMBINE_FIELD));
+        }
         HBaseWriteOptions hBaseWriteOptions = getHBaseWriteOptions(tableOptions);
         String nullStringLiteral = tableOptions.get(NULL_STRING_LITERAL);
         HBaseTableSchema hbaseSchema =

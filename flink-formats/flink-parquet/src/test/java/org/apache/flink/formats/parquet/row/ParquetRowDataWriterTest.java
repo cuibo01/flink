@@ -71,7 +71,6 @@ import java.util.stream.IntStream;
 import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.IDENTIFIER;
 import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.TIMESTAMP_TIME_UNIT;
 import static org.apache.flink.formats.parquet.ParquetFileFormatFactory.WRITE_INT64_TIMESTAMP;
-import static org.junit.Assert.assertEquals;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for {@link ParquetRowDataBuilder} and {@link ParquetRowDataWriter}. */
@@ -132,14 +131,14 @@ class ParquetRowDataWriterTest {
     }
 
     @Test
-    public void testInt64Timestamp() throws Exception {
+    public void testInt64Timestamp(@TempDir java.nio.file.Path folder) throws Exception {
         Configuration conf = new Configuration();
         conf.set(IDENTIFIER + "." + WRITE_INT64_TIMESTAMP.key(), "true");
         conf.set(IDENTIFIER + "." + TIMESTAMP_TIME_UNIT.key(), "nanos");
         innerTest(folder, conf, true);
         innerTest(folder, conf, false);
-        complexTypeTest(conf, true);
-        complexTypeTest(conf, false);
+        complexTypeTest(folder, conf, true);
+        complexTypeTest(folder, conf, false);
     }
 
     private void innerTest(java.nio.file.Path folder, Configuration conf, boolean utcTimestamp)

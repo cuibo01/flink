@@ -53,9 +53,8 @@ import org.apache.parquet.hadoop.ParquetOutputFormat;
 import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.hadoop.util.HadoopInputFile;
 import org.apache.parquet.io.InputFile;
-import org.junit.ClassRule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
@@ -76,9 +75,7 @@ import static org.junit.Assert.assertEquals;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for {@link ParquetRowDataBuilder} and {@link ParquetRowDataWriter}. */
-public class ParquetRowDataWriterTest {
-
-    @ClassRule public static final TemporaryFolder TEMPORARY_FOLDER = new TemporaryFolder();
+class ParquetRowDataWriterTest {
 
     private static final RowType ROW_TYPE =
             RowType.of(
@@ -116,22 +113,22 @@ public class ParquetRowDataWriterTest {
                     TypeConversions.fromLogicalToDataType(ROW_TYPE));
 
     @Test
-    public void testTypes() throws Exception {
+    void testTypes(@TempDir java.nio.file.Path folder) throws Exception {
         Configuration conf = new Configuration();
-        innerTest(conf, true);
-        innerTest(conf, false);
-        complexTypeTest(conf, true);
-        complexTypeTest(conf, false);
+        innerTest(folder, conf, true);
+        innerTest(folder, conf, false);
+        complexTypeTest(folder, conf, true);
+        complexTypeTest(folder, conf, false);
     }
 
     @Test
-    public void testCompression() throws Exception {
+    void testCompression(@TempDir java.nio.file.Path folder) throws Exception {
         Configuration conf = new Configuration();
         conf.set(ParquetOutputFormat.COMPRESSION, "GZIP");
-        innerTest(conf, true);
-        innerTest(conf, false);
-        complexTypeTest(conf, true);
-        complexTypeTest(conf, false);
+        innerTest(folder, conf, true);
+        innerTest(folder, conf, false);
+        complexTypeTest(folder, conf, true);
+        complexTypeTest(folder, conf, false);
     }
 
     @Test
@@ -139,14 +136,15 @@ public class ParquetRowDataWriterTest {
         Configuration conf = new Configuration();
         conf.set(IDENTIFIER + "." + WRITE_INT64_TIMESTAMP.key(), "true");
         conf.set(IDENTIFIER + "." + TIMESTAMP_TIME_UNIT.key(), "nanos");
-        innerTest(conf, true);
-        innerTest(conf, false);
+        innerTest(folder, conf, true);
+        innerTest(folder, conf, false);
         complexTypeTest(conf, true);
         complexTypeTest(conf, false);
     }
 
-    private void innerTest(Configuration conf, boolean utcTimestamp) throws IOException {
-        Path path = new Path(TEMPORARY_FOLDER.newFolder().getPath(), UUID.randomUUID().toString());
+    private void innerTest(java.nio.file.Path folder, Configuration conf, boolean utcTimestamp)
+            throws IOException {
+        Path path = new Path(folder.toString(), UUID.randomUUID().toString());
         int number = 1000;
         List<Row> rows = new ArrayList<>(number);
         for (int i = 0; i < number; i++) {
@@ -203,8 +201,9 @@ public class ParquetRowDataWriterTest {
         assertThat(cnt).isEqualTo(number);
     }
 
-    public void complexTypeTest(Configuration conf, boolean utcTimestamp) throws Exception {
-        Path path = new Path(TEMPORARY_FOLDER.newFolder().getPath(), UUID.randomUUID().toString());
+    public void complexTypeTest(java.nio.file.Path folder, Configuration conf, boolean utcTimestamp)
+            throws Exception {
+        Path path = new Path(folder.toString(), UUID.randomUUID().toString());
         int number = 1000;
         List<Row> rows = new ArrayList<>(number);
         Map<String, String> mapData = new HashMap<>();

@@ -41,13 +41,10 @@ public class ByteStreamStateHandle implements StreamStateHandle {
      */
     private final String handleName;
 
-    private final PhysicalStateHandleID physicalID;
-
     /** Creates a new ByteStreamStateHandle containing the given data. */
     public ByteStreamStateHandle(String handleName, byte[] data) {
         this.handleName = Preconditions.checkNotNull(handleName);
         this.data = Preconditions.checkNotNull(data);
-        this.physicalID = new PhysicalStateHandleID(handleName);
     }
 
     @Override
@@ -62,7 +59,7 @@ public class ByteStreamStateHandle implements StreamStateHandle {
 
     @Override
     public PhysicalStateHandleID getStreamStateHandleID() {
-        return physicalID;
+        return new PhysicalStateHandleID(handleName);
     }
 
     public byte[] getData() {
@@ -151,7 +148,7 @@ public class ByteStreamStateHandle implements StreamStateHandle {
                 index += bytesToCopy;
                 return bytesToCopy;
             } else {
-                return -1;
+                return len == 0 ? 0 : -1;
             }
         }
     }

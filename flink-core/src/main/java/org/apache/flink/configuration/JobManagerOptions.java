@@ -25,6 +25,9 @@ import org.apache.flink.configuration.description.Description;
 import java.time.Duration;
 
 import static org.apache.flink.configuration.ConfigOptions.key;
+import static org.apache.flink.configuration.JobManagerOptions.HybridPartitionDataConsumeConstraint.ALL_PRODUCERS_FINISHED;
+import static org.apache.flink.configuration.JobManagerOptions.HybridPartitionDataConsumeConstraint.ONLY_FINISHED_PRODUCERS;
+import static org.apache.flink.configuration.JobManagerOptions.HybridPartitionDataConsumeConstraint.UNFINISHED_PRODUCERS;
 import static org.apache.flink.configuration.description.LinkElement.link;
 import static org.apache.flink.configuration.description.TextElement.code;
 import static org.apache.flink.configuration.description.TextElement.text;
@@ -250,7 +253,7 @@ public class JobManagerOptions {
                             "Fraction of Total Process Memory to be reserved for JVM Overhead. "
                                     + JVM_OVERHEAD_DESCRIPTION);
 
-    /** The maximum number of prior execution attempts kept in history. */
+    /** The maximum number of historical execution attempts kept in history. */
     @Documentation.Section(Documentation.Sections.ALL_JOB_MANAGER)
     public static final ConfigOption<Integer> MAX_ATTEMPTS_HISTORY_SIZE =
             key("jobmanager.execution.attempts-history-size")
@@ -258,7 +261,7 @@ public class JobManagerOptions {
                     .defaultValue(16)
                     .withDeprecatedKeys("job-manager.max-attempts-history-size")
                     .withDescription(
-                            "The maximum number of prior execution attempts kept in history.");
+                            "The maximum number of historical execution attempts kept in history.");
 
     /**
      * This option specifies the failover strategy, i.e. how the job computation recovers from task
@@ -411,26 +414,38 @@ public class JobManagerOptions {
                     .withDescription("The timeout in milliseconds for a idle slot in Slot Pool.");
 
     /** Config parameter determining the scheduler implementation. */
-    @Documentation.ExcludeFromDocumentation("SchedulerNG is still in development.")
+    @Documentation.Section({
+        Documentation.Sections.EXPERT_SCHEDULING,
+        Documentation.Sections.ALL_JOB_MANAGER
+    })
     public static final ConfigOption<SchedulerType> SCHEDULER =
             key("jobmanager.scheduler")
                     .enumType(SchedulerType.class)
-                    .defaultValue(SchedulerType.Ng)
+                    .defaultValue(SchedulerType.Default)
                     .withDescription(
                             Description.builder()
                                     .text(
                                             "Determines which scheduler implementation is used to schedule tasks. Accepted values are:")
                                     .list(
-                                            text("'Ng': new generation scheduler"),
+                                            text("'Default': Default scheduler"),
                                             text(
-                                                    "'Adaptive': adaptive scheduler; supports reactive mode"),
+                                                    "'Adaptive': Adaptive scheduler. More details can be found %s.",
+                                                    link(
+                                                            "{{.Site.BaseURL}}{{.Site.LanguagePrefix}}/docs/deployment/elastic_scaling#adaptive-scheduler",
+                                                            "here")),
                                             text(
-                                                    "'AdaptiveBatch': adaptive batch scheduler, which can automatically decide parallelisms of job vertices for batch jobs"))
+                                                    "'AdaptiveBatch': Adaptive batch scheduler. More details can be found %s.",
+                                                    link(
+                                                            "{{.Site.BaseURL}}{{.Site.LanguagePrefix}}/docs/deployment/elastic_scaling#adaptive-batch-scheduler",
+                                                            "here")))
                                     .build());
 
     /** Type of scheduler implementation. */
     public enum SchedulerType {
+        /** @deprecated Use {@link SchedulerType#Default} instead. */
+        @Deprecated
         Ng,
+        Default,
         Adaptive,
         AdaptiveBatch
     }
@@ -593,6 +608,40 @@ public class JobManagerOptions {
                                             code(SchedulerType.AdaptiveBatch.name()))
                                     .build());
 
+    @Documentation.Section({
+        Documentation.Sections.EXPERT_SCHEDULING,
+        Documentation.Sections.ALL_JOB_MANAGER
+    })
+    public static final ConfigOption<Boolean> SPECULATIVE_ENABLED =
+            key("jobmanager.adaptive-batch-scheduler.speculative.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Controls whether to enable speculative execution.");
+
+    @Documentation.Section({
+        Documentation.Sections.EXPERT_SCHEDULING,
+        Documentation.Sections.ALL_JOB_MANAGER
+    })
+    public static final ConfigOption<Integer> SPECULATIVE_MAX_CONCURRENT_EXECUTIONS =
+            key("jobmanager.adaptive-batch-scheduler.speculative.max-concurrent-executions")
+                    .intType()
+                    .defaultValue(2)
+                    .withDescription(
+                            "Controls the maximum number of execution attempts of each operator "
+                                    + "that can execute concurrently, including the original one "
+                                    + "and speculative ones.");
+
+    @Documentation.Section({
+        Documentation.Sections.EXPERT_SCHEDULING,
+        Documentation.Sections.ALL_JOB_MANAGER
+    })
+    public static final ConfigOption<Duration> BLOCK_SLOW_NODE_DURATION =
+            key("jobmanager.adaptive-batch-scheduler.speculative.block-slow-node-duration")
+                    .durationType()
+                    .defaultValue(Duration.ofMinutes(1))
+                    .withDescription(
+                            "Controls how long an detected slow node should be blocked for.");
+
     /**
      * The JobManager's ResourceID. If not configured, the ResourceID will be generated randomly.
      */
@@ -603,6 +652,52 @@ public class JobManagerOptions {
                     .noDefaultValue()
                     .withDescription(
                             "The JobManager's ResourceID. If not configured, the ResourceID will be generated randomly.");
+
+    /** Constraints of upstream hybrid partition data consumption by downstream. */
+    public enum HybridPartitionDataConsumeConstraint {
+        ALL_PRODUCERS_FINISHED(true),
+        ONLY_FINISHED_PRODUCERS(true),
+        UNFINISHED_PRODUCERS(false);
+
+        private final boolean onlyConsumeFinishedPartition;
+
+        HybridPartitionDataConsumeConstraint(boolean onlyConsumeFinishedPartition) {
+            this.onlyConsumeFinishedPartition = onlyConsumeFinishedPartition;
+        }
+
+        public boolean isOnlyConsumeFinishedPartition() {
+            return onlyConsumeFinishedPartition;
+        }
+    }
+
+    @Documentation.Section({
+        Documentation.Sections.EXPERT_SCHEDULING,
+        Documentation.Sections.ALL_JOB_MANAGER
+    })
+    public static final ConfigOption<HybridPartitionDataConsumeConstraint>
+            HYBRID_PARTITION_DATA_CONSUME_CONSTRAINT =
+                    key("jobmanager.partition.hybrid.partition-data-consume-constraint")
+                            .enumType(HybridPartitionDataConsumeConstraint.class)
+                            .noDefaultValue()
+                            .withDescription(
+                                    Description.builder()
+                                            .text(
+                                                    "Controls the constraint that hybrid partition data can be consumed. "
+                                                            + "Note that this option is allowed only when %s has been set to %s. "
+                                                            + "Accepted values are:",
+                                                    code(SCHEDULER.key()),
+                                                    code(SchedulerType.AdaptiveBatch.name()))
+                                            .list(
+                                                    text(
+                                                            "'%s': hybrid partition data can be consumed only when all producers are finished.",
+                                                            code(ALL_PRODUCERS_FINISHED.name())),
+                                                    text(
+                                                            "'%s': hybrid partition data can be consumed when its producer is finished.",
+                                                            code(ONLY_FINISHED_PRODUCERS.name())),
+                                                    text(
+                                                            "'%s': hybrid partition data can be consumed even if its producer is un-finished.",
+                                                            code(UNFINISHED_PRODUCERS.name())))
+                                            .build());
 
     // ---------------------------------------------------------------------------------------------
 

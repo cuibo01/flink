@@ -34,6 +34,10 @@ import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeServiceAware;
 import org.apache.flink.util.function.FunctionWithException;
 
+import javax.annotation.Nullable;
+
+import java.util.function.Supplier;
+
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /** The Factory class for {@link SourceOperator}. */
@@ -53,6 +57,8 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
 
     /** The number of worker thread for the source coordinator. */
     private final int numCoordinatorWorkerThread;
+
+    private @Nullable String coordinatorListeningID;
 
     public SourceOperatorFactory(
             Source<OUT, ?, ?> source, WatermarkStrategy<OUT> watermarkStrategy) {
@@ -81,6 +87,10 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
         return source.getBoundedness();
     }
 
+    public void setCoordinatorListeningID(@Nullable String coordinatorListeningID) {
+        this.coordinatorListeningID = coordinatorListeningID;
+    }
+
     @Override
     public <T extends StreamOperator<OUT>> T createStreamOperator(
             StreamOperatorParameters<OUT> parameters) {
@@ -105,7 +115,8 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
                                 .getEnvironment()
                                 .getTaskManagerInfo()
                                 .getTaskManagerExternalAddress(),
-                        emitProgressiveWatermarks);
+                        emitProgressiveWatermarks,
+                        parameters.getContainingTask().getMailboxHasMail());
 
         sourceOperator.setup(
                 parameters.getContainingTask(),
@@ -128,7 +139,8 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
                 operatorID,
                 source,
                 numCoordinatorWorkerThread,
-                watermarkStrategy.getAlignmentParameters());
+                watermarkStrategy.getAlignmentParameters(),
+                coordinatorListeningID);
     }
 
     @SuppressWarnings("rawtypes")
@@ -159,7 +171,8 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
                     ProcessingTimeService timeService,
                     Configuration config,
                     String localHostName,
-                    boolean emitProgressiveWatermarks) {
+                    boolean emitProgressiveWatermarks,
+                    Supplier<Boolean> mailboxHasMail) {
 
         // jumping through generics hoops: cast the generics away to then cast them back more
         // strictly typed
@@ -180,6 +193,7 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
                 timeService,
                 config,
                 localHostName,
-                emitProgressiveWatermarks);
+                emitProgressiveWatermarks,
+                mailboxHasMail);
     }
 }

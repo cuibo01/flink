@@ -56,9 +56,6 @@ flink-libraries,\
 flink-libraries/flink-cep,\
 flink-libraries/flink-cep-scala,\
 flink-libraries/flink-state-processing-api,\
-flink-libraries/flink-gelly,\
-flink-libraries/flink-gelly-scala,\
-flink-libraries/flink-gelly-examples,\
 flink-queryable-state,\
 flink-queryable-state/flink-queryable-state-runtime,\
 flink-queryable-state/flink-queryable-state-client-java,\
@@ -79,6 +76,8 @@ flink-table/flink-table-api-java-bridge,\
 flink-table/flink-table-api-scala-bridge,\
 flink-table/flink-table-api-java-uber,\
 flink-table/flink-sql-client,\
+flink-table/flink-sql-gateway-api,\
+flink-table/flink-sql-gateway,\
 flink-table/flink-table-planner,\
 flink-table/flink-table-planner-loader,\
 flink-table/flink-table-planner-loader-bundle,\
@@ -123,17 +122,10 @@ flink-connectors/flink-connector-hbase-1.4,\
 flink-connectors/flink-sql-connector-hbase-1.4,\
 flink-connectors/flink-connector-hbase-2.2,\
 flink-connectors/flink-sql-connector-hbase-2.2,\
-flink-connectors/flink-hcatalog,\
 flink-connectors/flink-hadoop-compatibility,\
 flink-connectors,\
 flink-connectors/flink-connector-files,\
 flink-connectors/flink-connector-jdbc,\
-flink-connectors/flink-connector-cassandra,\
-flink-connectors/flink-connector-elasticsearch6,\
-flink-connectors/flink-connector-elasticsearch7,\
-flink-connectors/flink-sql-connector-elasticsearch6,\
-flink-connectors/flink-sql-connector-elasticsearch7,\
-flink-connectors/flink-connector-elasticsearch-base,\
 flink-metrics/flink-metrics-dropwizard,\
 flink-metrics/flink-metrics-graphite,\
 flink-metrics/flink-metrics-jmx,\
@@ -149,17 +141,9 @@ flink-connectors/flink-connector-base,\
 flink-connectors/flink-connector-kafka,\
 flink-connectors/flink-sql-connector-kafka,\
 flink-connectors/flink-connector-gcp-pubsub,\
-flink-connectors/flink-connector-pulsar,\
-flink-connectors/flink-sql-connector-pulsar,\
 flink-connectors/flink-connector-rabbitmq,\
 flink-connectors/flink-sql-connector-rabbitmq,\
 flink-connectors/flink-connector-aws-base,\
-flink-connectors/flink-connector-kinesis,\
-flink-connectors/flink-sql-connector-kinesis,\
-flink-connectors/flink-connector-aws-kinesis-streams,\
-flink-connectors/flink-sql-connector-aws-kinesis-streams,\
-flink-connectors/flink-connector-aws-kinesis-firehose,\
-flink-connectors/flink-sql-connector-aws-kinesis-firehose,\
 "
 
 MODULES_TESTS="\

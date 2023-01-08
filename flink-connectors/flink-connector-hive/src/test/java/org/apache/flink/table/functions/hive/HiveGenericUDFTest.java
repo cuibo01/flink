@@ -21,11 +21,10 @@ package org.apache.flink.table.functions.hive;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.catalog.hive.client.HiveShim;
 import org.apache.flink.table.catalog.hive.client.HiveShimLoader;
-import org.apache.flink.table.functions.hive.HiveSimpleUDFTest.HiveUDFCallContext;
 import org.apache.flink.table.functions.hive.util.TestGenericUDFArray;
 import org.apache.flink.table.functions.hive.util.TestGenericUDFStructSize;
 import org.apache.flink.table.types.DataType;
-import org.apache.flink.table.types.inference.CallContext;
+import org.apache.flink.table.types.inference.utils.CallContextMock;
 import org.apache.flink.types.Row;
 
 import org.apache.hadoop.hive.ql.udf.UDFUnhex;
@@ -45,7 +44,11 @@ import java.lang.reflect.InvocationTargetException;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.table.HiveVersionTestUtil.HIVE_230_OR_LATER;
 import static org.apache.flink.table.HiveVersionTestUtil.HIVE_310_OR_LATER;
@@ -53,7 +56,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for {@link HiveGenericUDF}. */
 public class HiveGenericUDFTest {
-    private static HiveShim hiveShim = HiveShimLoader.loadHiveShim(HiveShimLoader.getHiveVersion());
+    private static final HiveShim hiveShim =
+            HiveShimLoader.loadHiveShim(HiveShimLoader.getHiveVersion());
 
     @Test
     public void testAbs() {
@@ -282,12 +286,63 @@ public class HiveGenericUDFTest {
         assertThat(udf.eval(result)).isEqualTo(3);
     }
 
-    private static HiveGenericUDF init(
-            Class hiveUdfClass, Object[] constantArgs, DataType[] argTypes) {
-        HiveGenericUDF udf =
-                new HiveGenericUDF(new HiveFunctionWrapper(hiveUdfClass.getName()), hiveShim);
+    @Test
+    public void testInitUDFWithConstantArguments() {
+        // test init udf with different type of constants as arguments to
+        // make sure we can get the ConstantObjectInspector normally
 
-        CallContext callContext = new HiveUDFCallContext(constantArgs, argTypes);
+        // test with byte type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {1}, new DataType[] {DataTypes.TINYINT()});
+        // test with short type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {1}, new DataType[] {DataTypes.SMALLINT()});
+        // test with int type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {1}, new DataType[] {DataTypes.INT()});
+        // test with long type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {1}, new DataType[] {DataTypes.BIGINT()});
+        // test with float type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {1}, new DataType[] {DataTypes.FLOAT()});
+        // test with double type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {1}, new DataType[] {DataTypes.DOUBLE()});
+        // test with string type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {"test"}, new DataType[] {DataTypes.STRING()});
+        // test with char type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {"tes"}, new DataType[] {DataTypes.CHAR(7)});
+        // test with varchar type as constant argument
+        init(GenericUDFCoalesce.class, new Object[] {"tes"}, new DataType[] {DataTypes.VARCHAR(7)});
+        // test with date type as constant argument
+        init(
+                GenericUDFCoalesce.class,
+                new Object[] {new Date(10000)},
+                new DataType[] {DataTypes.DATE()});
+        // test with timestamp type as constant argument
+        init(
+                GenericUDFCoalesce.class,
+                new Object[] {new Timestamp(10000)},
+                new DataType[] {DataTypes.TIMESTAMP()});
+
+        // test with decimal type as constant argument
+        init(
+                GenericUDFCoalesce.class,
+                new Object[] {new BigDecimal("23.45")},
+                new DataType[] {DataTypes.DECIMAL(10, 3)});
+
+        // test with binary type as constant argument
+        init(
+                GenericUDFCoalesce.class,
+                new Object[] {new byte[] {1, 2}},
+                new DataType[] {DataTypes.BYTES()});
+    }
+
+    private static HiveGenericUDF init(
+            Class<?> hiveUdfClass, Object[] constantArgs, DataType[] argTypes) {
+        HiveGenericUDF udf = new HiveGenericUDF(new HiveFunctionWrapper<>(hiveUdfClass), hiveShim);
+
+        CallContextMock callContext = new CallContextMock();
+        callContext.argumentDataTypes = Arrays.asList(argTypes);
+        callContext.argumentValues =
+                Arrays.stream(constantArgs).map(Optional::ofNullable).collect(Collectors.toList());
+        callContext.argumentLiterals =
+                Arrays.stream(constantArgs).map(Objects::nonNull).collect(Collectors.toList());
         udf.getTypeInference(null).getOutputTypeStrategy().inferType(callContext);
 
         udf.open(null);

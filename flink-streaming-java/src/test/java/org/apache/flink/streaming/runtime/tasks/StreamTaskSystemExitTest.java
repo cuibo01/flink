@@ -41,6 +41,7 @@ import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.InputSplitProvider;
 import org.apache.flink.runtime.memory.MemoryManagerBuilder;
+import org.apache.flink.runtime.memory.SharedResources;
 import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.operators.testutils.MockEnvironmentBuilder;
 import org.apache.flink.runtime.query.KvStateRegistry;
@@ -153,6 +154,7 @@ public class StreamTaskSystemExitTest extends TestLogger {
         streamConfig.setOperatorID(new OperatorID());
         streamConfig.setStreamOperator(operator);
         streamConfig.setTimeCharacteristic(TimeCharacteristic.ProcessingTime); // for source run
+        streamConfig.serializeAllConfigs();
 
         final JobInformation jobInformation =
                 new JobInformation(
@@ -185,6 +187,7 @@ public class StreamTaskSystemExitTest extends TestLogger {
                 Collections.<ResultPartitionDeploymentDescriptor>emptyList(),
                 Collections.<InputGateDeploymentDescriptor>emptyList(),
                 MemoryManagerBuilder.newBuilder().setMemorySize(32L * 1024L).build(),
+                new SharedResources(),
                 new IOManagerAsync(),
                 shuffleEnvironment,
                 new KvStateService(new KvStateRegistry(), null, null),

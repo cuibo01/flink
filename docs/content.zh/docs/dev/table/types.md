@@ -1,5 +1,5 @@
 ---
-title: "Data Types"
+title: "数据类型"
 weight: 21
 type: docs
 aliases:
@@ -24,57 +24,57 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Data Types
+<a name="data-types"></a>
 
-Flink SQL has a rich set of native data types available to users.
+# 数据类型
 
-Data Type
+Flink SQL 为用户提供了一系列丰富的原始数据类型。
+
+<a name="data-type"></a>
+
+数据类型
 ---------
 
-A *data type* describes the logical type of a value in the table ecosystem.
-It can be used to declare input and/or output types of operations.
+在 Flink 的 Table 生态系统中，*数据类型* 描述了数据的逻辑类型，可以用来表示转换过程中输入、输出的类型。
 
-Flink's data types are similar to the SQL standard's *data type* terminology but also contain information
-about the nullability of a value for efficient handling of scalar expressions.
+Flink 的数据类型类似于 SQL 标准中的术语*数据类型*，但包含了值的可空性，以便于更好地处理标量表达式。
 
-Examples of data types are:
+以下是一些数据类型的例子：
 - `INT`
 - `INT NOT NULL`
 - `INTERVAL DAY TO SECOND(3)`
 - `ROW<myField ARRAY<BOOLEAN>, myOtherField TIMESTAMP(3)>`
 
-A list of all pre-defined data types can be found [below](#list-of-data-types).
+可在[下文](#list-of-data-types)中找到所有预先定义好的数据类型。
 
-### Data Types in the Table API
+<a name="data-types-in-the-table-api"></a>
+
+### Table API 中的数据类型
 
 {{< tabs "datatypes" >}}
 {{< tab "Java/Scala" >}}
-Users of the JVM-based API work with instances of `org.apache.flink.table.types.DataType` within the Table API or when
-defining connectors, catalogs, or user-defined functions. 
+在定义 connector、catalog、用户自定义函数时，使用 JVM 相关 API 的用户可能会使用到 Table API 中基于 `org.apache.flink.table.types.DataType` 的一些实例。
 
-A `DataType` instance has two responsibilities:
-- **Declaration of a logical type** which does not imply a concrete physical representation for transmission
-or storage but defines the boundaries between JVM-based/Python languages and the table ecosystem.
-- *Optional:* **Giving hints about the physical representation of data to the planner** which is useful at the edges to other APIs.
+`数据类型` 实例有两个职责：
+- **作为逻辑类型的表现形式**，定义 JVM 类语言或 Python 语言与 Table 生态系统的边界，而不是以具体的物理表现形式存在于数据的传输过程或存储中。
+- *可选的:* 在与其他 API 进行数据交换时，**为 Planner 提供这些数据物理层面的相关提示**。
 
-For JVM-based languages, all pre-defined data types are available in `org.apache.flink.table.api.DataTypes`.
+对于基于 JVM 的语言，所有预定义的数据类型都可以在 `org.apache.flink.table.api.DataTypes` 下找到。
 {{< /tab >}}
 {{< tab "Python" >}}
-Users of the Python API work with instances of `pyflink.table.types.DataType` within the Python Table API or when 
-defining Python user-defined functions.
+在 Python 语言定义用户自定义函数时，使用 Python API 的用户
+可能会使用到 Python API 中基于 `pyflink.table.types.DataType` 的一些实例。
 
-A `DataType` instance has such a responsibility:
-- **Declaration of a logical type** which does not imply a concrete physical representation for transmission
-or storage but defines the boundaries between Python languages and the table ecosystem.
+`数据类型` 实例有如下职责：
+- **作为逻辑类型的表现形式**，定义 JVM 类语言或 Python 语言与 Table 生态系统的边界，而不是以具体的物理表现形式存在于数据的传输过程或存储中。
 
-For Python language, those types are available in `pyflink.table.types.DataTypes`.
+对于 Python 语言，这些类型可以在 `pyflink.table.types.DataTypes` 下找到。
 {{< /tab >}}
 {{< /tabs >}}
 
 {{< tabs "84cf5e1c-c899-42cb-8fdf-6ae59fdd012c" >}}
 {{< tab "Java" >}}
-It is recommended to add a star import to your table programs for having a fluent API:
-
+使用 Table API 编程时，建议使用星号引入所有相关依赖，以获得更流畅的 API 使用体验：
 ```java
 import static org.apache.flink.table.api.DataTypes.*;
 
@@ -82,7 +82,7 @@ DataType t = INTERVAL(DAY(), SECOND(3));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
-It is recommended to add a star import to your table programs for having a fluent API:
+使用 Table API 编程时，建议使用星号引入所有相关依赖，以获得更流畅的 API 使用体验：
 
 ```scala
 import org.apache.flink.table.api.DataTypes._
@@ -100,47 +100,38 @@ t = DataTypes.INTERVAL(DataTypes.DAY(), DataTypes.SECOND(3))
 {{< /tab >}}
 {{< /tabs >}}
 
+<a name="physical-hints"></a>
 
-#### Physical Hints
+#### 物理提示
 
-Physical hints are required at the edges of the table ecosystem where the SQL-based type system ends and
-programming-specific data types are required. Hints indicate the data format that an implementation
-expects.
+在Table 生态系统中，当需要将 SQL 中的数据类型对应到实际编程语言中的数据类型时，就需要有物理提示。物理提示明确了对应过程中应该使用哪种数据格式。
 
-For example, a data source could express that it produces values for logical `TIMESTAMP`s using a `java.sql.Timestamp` class
-instead of using `java.time.LocalDateTime` which would be the default. With this information, the runtime is able to convert
-the produced class into its internal data format. In return, a data sink can declare the data format it consumes from the runtime.
+比如，在 source 端产生数据时，可以规定：`TIMESTAMP` 的逻辑类型，在底层要使用 `java.sql.Timestamp` 这个类表示，而不是使用默认的 `java.time.LocalDateTime` 类。有了物理提示，可以帮助 Flink 运行时根据提供的类将数据转换为其内部数据格式。同样在 sink 端，定义好数据格式，以便能从 Flink 运行时获取、转换数据。
 
-Here are some examples of how to declare a bridging conversion class:
+下面的例子展示了如何声明一个桥接转换类：
 
 {{< tabs "hints" >}}
 {{< tab "Java" >}}
 ```java
-// tell the runtime to not produce or consume java.time.LocalDateTime instances
-// but java.sql.Timestamp
+// 告诉 Flink 运行时使用 java.sql.Timestamp 处理数据，而不是 java.time.LocalDateTime
 DataType t = DataTypes.TIMESTAMP(3).bridgedTo(java.sql.Timestamp.class);
 
-// tell the runtime to not produce or consume boxed integer arrays
-// but primitive int arrays
+// 告诉 Flink 运行时使用基本的 int 数组来处理数据，而不是用包装类 Integer 数组
 DataType t = DataTypes.ARRAY(DataTypes.INT().notNull()).bridgedTo(int[].class);
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
-// tell the runtime to not produce or consume java.time.LocalDateTime instances
-// but java.sql.Timestamp
+// 告诉 Flink 运行时使用 java.sql.Timestamp 处理数据，而不是 java.time.LocalDateTime
 val t: DataType = DataTypes.TIMESTAMP(3).bridgedTo(classOf[java.sql.Timestamp])
 
-// tell the runtime to not produce or consume boxed integer arrays
-// but primitive int arrays
+// 告诉 Flink 运行时使用基本的 int 数组来处理数据，而不是用包装类 Integer 数组
 val t: DataType = DataTypes.ARRAY(DataTypes.INT().notNull()).bridgedTo(classOf[Array[Int]])
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-<span class="label label-danger">Attention</span> Please note that physical hints are usually only required if the
-API is extended. Users of predefined sources/sinks/functions do not need to define such hints. Hints within
-a table program (e.g. `field.cast(TIMESTAMP(3).bridgedTo(Timestamp.class))`) are ignored.
+<span class="label label-danger">注意</span> 请记住，只有在扩展 API 时才需要使用到物理提示。使用预定义的 source、sink 以及 Flink 函数时，不需要用到物理提示。在使用 Table API 编写程序时，Flink 会忽略物理提示（例如 `field.cast(TIMESTAMP(3).bridgedTo(Timestamp.class))`）。
 
 List of Data Types
 ------------------
@@ -1567,25 +1558,18 @@ COALESCE(TRY_CAST('non-number' AS INT), 0) --- 结果返回数字 0 的 INT 格�
 在下一个版本，这个参数会被移除。
 {{< /hint >}}
 
-Data Type Extraction
+数据类型提取
 --------------------
 
 {{< tabs "extraction" >}}
 {{< tab "Java/Scala" >}}
-At many locations in the API, Flink tries to automatically extract data type from class information using
-reflection to avoid repetitive manual schema work. However, extracting a data type reflectively is not always
-successful because logical information might be missing. Therefore, it might be necessary to add additional
-information close to a class or field declaration for supporting the extraction logic.
+在 API 中的很多地方，Flink 都尝试利用反射机制从类信息中自动提取数据类型，以避免重复地手动定义 schema。但是，通过反射提取数据类型并不总是有效的，因为有可能会缺失逻辑信息。因此，可能需要在类或字段声明的附近添加额外信息以支持提取逻辑。
 
-The following table lists classes that can be implicitly mapped to a data type without requiring further information.
+下表列出了无需更多信息即可隐式映射到数据类型的类。
 
-If you intend to implement classes in Scala, *it is recommended to use boxed types* (e.g. `java.lang.Integer`)
-instead of Scala's primitives. Scala's primitives (e.g. `Int` or `Double`) are compiled to JVM primitives (e.g.
-`int`/`double`) and result in `NOT NULL` semantics as shown in the table below. Furthermore, Scala primitives that
-are used in generics (e.g. `java.util.Map[Int, Double]`) are erased during compilation and lead to class
-information similar to `java.util.Map[java.lang.Object, java.lang.Object]`.
+如果你打算在 Scala 中实现类，*建议使用包装类型*（例如 `java.lang.Integer`）而不是 Scala 的基本类型。如下表所示，Scala 的基本类型（例如 `Int` 或 `Double`）会被编译为 JVM 基本类型（例如 `int`/`double`）并产生 `NOT NULL` 语义。此外，在泛型中使用的 Scala 基本类型（例如 `java.util.Map[Int, Double]`）在编译期间会被擦除，导致类信息类似于 `java.util.Map[java.lang.Object, java.lang.Object]`。
 
-| Class                       | Data Type                           |
+| 类                          | 数据类型                             |
 |:----------------------------|:------------------------------------|
 | `java.lang.String`          | `STRING`                            |
 | `java.lang.Boolean`         | `BOOLEAN`                           |
@@ -1615,16 +1599,13 @@ information similar to `java.util.Map[java.lang.Object, java.lang.Object]`.
 | `byte[]`                    | `BYTES`                             |
 | `T[]`                       | `ARRAY<T>`                          |
 | `java.util.Map<K, V>`       | `MAP<K, V>`                         |
-| structured type `T`         | anonymous structured type `T`       |
+| 结构化类型       `T`         | 匿名结构化类型 `T`                    |
 
-Other JVM bridging classes mentioned in this document require a `@DataTypeHint` annotation.
+本文档中提到的其他 JVM 桥接类需要 `@DataTypeHint` 注释。
 
-_Data type hints_ can parameterize or replace the default extraction logic of individual function parameters
-and return types, structured classes, or fields of structured classes. An implementer can choose to what
-extent the default extraction logic should be modified by declaring a `@DataTypeHint` annotation.
+_数据类型 hints_ 可以参数化或替换单个函数参数和返回类型、结构化类或结构化类的字段的默认提取逻辑。实现者可以通过声明 `@DataTypeHint` 注解来选择默认提取逻辑的修改程度。
 
-The `@DataTypeHint` annotation provides a set of optional hint parameters. Some of those parameters are shown in the
-following example. More information can be found in the documentation of the annotation class.
+`@DataTypeHint` 注解提供了一组可选的 hint 参数。其中一些参数如以下示例所示。更多信息可以在注解类的文档中找到。
 {{< /tab >}}
 {{< tab "Python" >}}
 {{< /tab >}}
@@ -1637,21 +1618,19 @@ import org.apache.flink.table.annotation.DataTypeHint;
 
 class User {
 
-    // defines an INT data type with a default conversion class `java.lang.Integer`
+    // 使用默认转换类 `java.lang.Integer` 定义 INT 数据类型
     public @DataTypeHint("INT") Object o;
 
-    // defines a TIMESTAMP data type of millisecond precision with an explicit conversion class
+    // 使用显式转换类定义毫秒精度的 TIMESTAMP 数据类型
     public @DataTypeHint(value = "TIMESTAMP(3)", bridgedTo = java.sql.Timestamp.class) Object o;
 
-    // enrich the extraction with forcing using a RAW type
+    // 通过强制使用 RAW 类型来丰富提取
     public @DataTypeHint("RAW") Class<?> modelClass;
 
-    // defines that all occurrences of java.math.BigDecimal (also in nested fields) will be
-    // extracted as DECIMAL(12, 2)
+    // 定义所有出现的 java.math.BigDecimal（包含嵌套字段）都将被提取为 DECIMAL(12, 2)
     public @DataTypeHint(defaultDecimalPrecision = 12, defaultDecimalScale = 2) AccountStatement stmt;
 
-    // defines that whenever a type cannot be mapped to a data type, instead of throwing
-    // an exception, always treat it as a RAW type
+    // 定义当类型不能映射到数据类型时，总是将其视为 RAW 类型，而不是抛出异常
     public @DataTypeHint(allowRawGlobally = HintFlag.TRUE) ComplexModel model;
 }
 ```
@@ -1662,25 +1641,23 @@ import org.apache.flink.table.annotation.DataTypeHint
 
 class User {
 
-    // defines an INT data type with a default conversion class `java.lang.Integer`
+    // 使用默认转换类 `java.lang.Integer` 定义 INT 数据类型
     @DataTypeHint("INT")
     var o: AnyRef
 
-    // defines a TIMESTAMP data type of millisecond precision with an explicit conversion class
+    // 使用显式转换类定义毫秒精度的 TIMESTAMP 数据类型
     @DataTypeHint(value = "TIMESTAMP(3)", bridgedTo = java.sql.Timestamp.class)
     var o: AnyRef
 
-    // enrich the extraction with forcing using a RAW type
+    // 通过强制使用 RAW 类型来丰富提取
     @DataTypeHint("RAW")
     var modelClass: Class[_]
 
-    // defines that all occurrences of java.math.BigDecimal (also in nested fields) will be
-    // extracted as DECIMAL(12, 2)
+    // 定义所有出现的 java.math.BigDecimal（包含嵌套字段）都将被提取为 DECIMAL(12, 2)
     @DataTypeHint(defaultDecimalPrecision = 12, defaultDecimalScale = 2)
     var stmt: AccountStatement
 
-    // defines that whenever a type cannot be mapped to a data type, instead of throwing
-    // an exception, always treat it as a RAW type
+    // 定义当类型不能映射到数据类型时，总是将其视为 RAW 类型，而不是抛出异常
     @DataTypeHint(allowRawGlobally = HintFlag.TRUE)
     var model: ComplexModel
 }
@@ -1688,7 +1665,7 @@ class User {
 {{< /tab >}}
 {{< tab "Python" >}}
 ```python
-Not supported.
+不支持。
 ```
 {{< /tab >}}
 {{< /tabs >}}

@@ -104,12 +104,14 @@ public class TableEnvHiveConnectorITCase {
                             tableEnv.executeSql("select * from destp order by x").collect());
             assertThat(results.toString()).isEqualTo("[+I[1, 1], +I[2, 2]]");
             // static partitioned table
+            // The semantics of overwrite is to overwrite the original data, so the
+            // p=1 partition is overwritten with an empty partition.
             tableEnv.executeSql("insert overwrite table destp partition(p=1) select x from src")
                     .await();
             results =
                     CollectionUtil.iteratorToList(
                             tableEnv.executeSql("select * from destp order by x").collect());
-            assertThat(results.toString()).isEqualTo("[+I[1, 1], +I[2, 2]]");
+            assertThat(results.toString()).isEqualTo("[+I[2, 2]]");
         } finally {
             tableEnv.executeSql("drop database db1 cascade");
         }
@@ -261,6 +263,8 @@ public class TableEnvHiveConnectorITCase {
             tableEnv.executeSql("create table db1.nested (a array<map<int, string>>)");
             tableEnv.executeSql(
                     "create function hiveudtf as 'org.apache.hadoop.hive.ql.udf.generic.GenericUDTFExplode'");
+            tableEnv.executeSql(
+                    "create function json_tuple as 'org.apache.hadoop.hive.ql.udf.generic.GenericUDTFJSONTuple'");
             HiveTestUtils.createTextTableInserter(hiveCatalog, "db1", "simple")
                     .addRow(new Object[] {3, Arrays.asList(1, 2, 3)})
                     .commit();
@@ -287,7 +291,14 @@ public class TableEnvHiveConnectorITCase {
                                     .execute()
                                     .collect());
             assertThat(results.toString()).isEqualTo("[+I[{1=a, 2=b}], +I[{3=c}]]");
-
+            results =
+                    CollectionUtil.iteratorToList(
+                            tableEnv.sqlQuery(
+                                            "select foo.i, b.role_id from db1.simple foo,"
+                                                    + " lateral table(json_tuple('{\"a\": \"0\", \"b\": \"1\"}', 'a')) as b(role_id)")
+                                    .execute()
+                                    .collect());
+            assertThat(results.toString()).isEqualTo("[+I[3, 0]]");
             tableEnv.executeSql("create table db1.ts (a array<timestamp>)");
             HiveTestUtils.createTextTableInserter(hiveCatalog, "db1", "ts")
                     .addRow(

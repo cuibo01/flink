@@ -396,34 +396,250 @@ org.apache.flink.table.api.ValidationException: ALTER TABLE RESET does not suppo
 !error
 
 # ==========================================================================
+# test alter table rename column
+# ==========================================================================
+
+alter table orders2 rename amount to amount1;
+[INFO] Execute statement succeed.
+!info
+
+# verify table options using SHOW CREATE TABLE
+show create table orders2;
+CREATE TABLE `default_catalog`.`default_database`.`orders2` (
+  `user` BIGINT NOT NULL,
+  `product` VARCHAR(32),
+  `amount1` INT,
+  `ts` TIMESTAMP(3),
+  `ptime` AS PROCTIME(),
+  WATERMARK FOR `ts` AS `ts` - INTERVAL '1' SECOND,
+  CONSTRAINT `PK_3599338` PRIMARY KEY (`user`) NOT ENFORCED
+) WITH (
+  'connector' = 'datagen'
+)
+
+!ok
+
+# ==========================================================================
+# test alter table add schema
+# ==========================================================================
+
+# test alter table schema add an existed column
+alter table orders2 add product string first;
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.api.ValidationException: Failed to execute ALTER TABLE statement.
+Try to add a column `product` which already exists in the table.
+!error
+
+# test alter table schema add a column after a nonexistent column
+alter table orders2 add user_id string after shipment_info;
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.api.ValidationException: Failed to execute ALTER TABLE statement.
+Referenced column `shipment_info` by 'AFTER' does not exist in the table.
+!error
+
+# test alter table add one column
+alter table orders2 add product_id bigint not null after `user`;
+[INFO] Execute statement succeed.
+!info
+
+# verify table schema using SHOW CREATE TABLE
+show create table orders2;
+CREATE TABLE `default_catalog`.`default_database`.`orders2` (
+  `user` BIGINT NOT NULL,
+  `product_id` BIGINT NOT NULL,
+  `product` VARCHAR(32),
+  `amount1` INT,
+  `ts` TIMESTAMP(3),
+  `ptime` AS PROCTIME(),
+  WATERMARK FOR `ts` AS `ts` - INTERVAL '1' SECOND,
+  CONSTRAINT `PK_3599338` PRIMARY KEY (`user`) NOT ENFORCED
+) WITH (
+  'connector' = 'datagen'
+)
+
+!ok
+
+# test alter table add multiple columns
+alter table orders2 add (user_email string not null after `user`, cleaned_product as coalesce(product, 'missing_sku') after product, trade_order_id bigint not null first);
+[INFO] Execute statement succeed.
+!info
+
+# verify table schema using SHOW CREATE TABLE
+show create table orders2;
+CREATE TABLE `default_catalog`.`default_database`.`orders2` (
+  `trade_order_id` BIGINT NOT NULL,
+  `user` BIGINT NOT NULL,
+  `user_email` VARCHAR(2147483647) NOT NULL,
+  `product_id` BIGINT NOT NULL,
+  `product` VARCHAR(32),
+  `cleaned_product` AS COALESCE(`product`, 'missing_sku'),
+  `amount1` INT,
+  `ts` TIMESTAMP(3),
+  `ptime` AS PROCTIME(),
+  WATERMARK FOR `ts` AS `ts` - INTERVAL '1' SECOND,
+  CONSTRAINT `PK_3599338` PRIMARY KEY (`user`) NOT ENFORCED
+) WITH (
+  'connector' = 'datagen'
+)
+
+!ok
+
+# ==========================================================================
+# test alter table modify schema
+# ==========================================================================
+# test alter table schema modify primary key
+alter table orders2 modify constraint order_constraint primary key (trade_order_id) not enforced;
+[INFO] Execute statement succeed.
+!info
+
+# verify table schema using SHOW CREATE TABLE
+show create table orders2;
+CREATE TABLE `default_catalog`.`default_database`.`orders2` (
+  `trade_order_id` BIGINT NOT NULL,
+  `user` BIGINT NOT NULL,
+  `user_email` VARCHAR(2147483647) NOT NULL,
+  `product_id` BIGINT NOT NULL,
+  `product` VARCHAR(32),
+  `cleaned_product` AS COALESCE(`product`, 'missing_sku'),
+  `amount1` INT,
+  `ts` TIMESTAMP(3),
+  `ptime` AS PROCTIME(),
+  WATERMARK FOR `ts` AS `ts` - INTERVAL '1' SECOND,
+  CONSTRAINT `order_constraint` PRIMARY KEY (`trade_order_id`) NOT ENFORCED
+) WITH (
+  'connector' = 'datagen'
+)
+
+!ok
+
+# test alter table schema modify watermark offset, change column position
+alter table orders2 modify (watermark for ts as ts - interval '1' minute, ts timestamp(3) not null after trade_order_id, `user` string);
+[INFO] Execute statement succeed.
+!info
+
+# verify table schema using SHOW CREATE TABLE
+show create table orders2;
+CREATE TABLE `default_catalog`.`default_database`.`orders2` (
+  `trade_order_id` BIGINT NOT NULL,
+  `ts` TIMESTAMP(3) NOT NULL,
+  `user` VARCHAR(2147483647),
+  `user_email` VARCHAR(2147483647) NOT NULL,
+  `product_id` BIGINT NOT NULL,
+  `product` VARCHAR(32),
+  `cleaned_product` AS COALESCE(`product`, 'missing_sku'),
+  `amount1` INT,
+  `ptime` AS PROCTIME(),
+  WATERMARK FOR `ts` AS `ts` - INTERVAL '1' MINUTE,
+  CONSTRAINT `order_constraint` PRIMARY KEY (`trade_order_id`) NOT ENFORCED
+) WITH (
+  'connector' = 'datagen'
+)
+
+!ok
+
+# ==========================================================================
+# test alter table drop column
+# ==========================================================================
+
+alter table orders2 drop (amount1, product, cleaned_product);
+[INFO] Execute statement succeed.
+!info
+
+# verify table options using SHOW CREATE TABLE
+show create table orders2;
+CREATE TABLE `default_catalog`.`default_database`.`orders2` (
+  `trade_order_id` BIGINT NOT NULL,
+  `ts` TIMESTAMP(3) NOT NULL,
+  `user` VARCHAR(2147483647),
+  `user_email` VARCHAR(2147483647) NOT NULL,
+  `product_id` BIGINT NOT NULL,
+  `ptime` AS PROCTIME(),
+  WATERMARK FOR `ts` AS `ts` - INTERVAL '1' MINUTE,
+  CONSTRAINT `order_constraint` PRIMARY KEY (`trade_order_id`) NOT ENFORCED
+) WITH (
+  'connector' = 'datagen'
+)
+
+!ok
+
+# ==========================================================================
+# test alter table drop primary key
+# ==========================================================================
+
+alter table orders2 drop primary key;
+[INFO] Execute statement succeed.
+!info
+
+# verify table options using SHOW CREATE TABLE
+show create table orders2;
+CREATE TABLE `default_catalog`.`default_database`.`orders2` (
+  `trade_order_id` BIGINT NOT NULL,
+  `ts` TIMESTAMP(3) NOT NULL,
+  `user` VARCHAR(2147483647),
+  `user_email` VARCHAR(2147483647) NOT NULL,
+  `product_id` BIGINT NOT NULL,
+  `ptime` AS PROCTIME(),
+  WATERMARK FOR `ts` AS `ts` - INTERVAL '1' MINUTE
+) WITH (
+  'connector' = 'datagen'
+)
+
+!ok
+
+# ==========================================================================
+# test alter table drop watermark
+# ==========================================================================
+
+alter table orders2 drop watermark;
+[INFO] Execute statement succeed.
+!info
+
+# verify table options using SHOW CREATE TABLE
+show create table orders2;
+CREATE TABLE `default_catalog`.`default_database`.`orders2` (
+  `trade_order_id` BIGINT NOT NULL,
+  `ts` TIMESTAMP(3) NOT NULL,
+  `user` VARCHAR(2147483647),
+  `user_email` VARCHAR(2147483647) NOT NULL,
+  `product_id` BIGINT NOT NULL,
+  `ptime` AS PROCTIME()
+) WITH (
+  'connector' = 'datagen'
+)
+
+!ok
+
+# ==========================================================================
 # test describe table
 # ==========================================================================
 
 describe orders2;
-+---------+-----------------------------+-------+-----------+---------------+----------------------------+
-|    name |                        type |  null |       key |        extras |                  watermark |
-+---------+-----------------------------+-------+-----------+---------------+----------------------------+
-|    user |                      BIGINT | FALSE | PRI(user) |               |                            |
-| product |                 VARCHAR(32) |  TRUE |           |               |                            |
-|  amount |                         INT |  TRUE |           |               |                            |
-|      ts |      TIMESTAMP(3) *ROWTIME* |  TRUE |           |               | `ts` - INTERVAL '1' SECOND |
-|   ptime | TIMESTAMP_LTZ(3) *PROCTIME* | FALSE |           | AS PROCTIME() |                            |
-+---------+-----------------------------+-------+-----------+---------------+----------------------------+
-5 rows in set
++----------------+-----------------------------+-------+-----+---------------+-----------+
+|           name |                        type |  null | key |        extras | watermark |
++----------------+-----------------------------+-------+-----+---------------+-----------+
+| trade_order_id |                      BIGINT | FALSE |     |               |           |
+|             ts |                TIMESTAMP(3) | FALSE |     |               |           |
+|           user |                      STRING |  TRUE |     |               |           |
+|     user_email |                      STRING | FALSE |     |               |           |
+|     product_id |                      BIGINT | FALSE |     |               |           |
+|          ptime | TIMESTAMP_LTZ(3) *PROCTIME* | FALSE |     | AS PROCTIME() |           |
++----------------+-----------------------------+-------+-----+---------------+-----------+
+6 rows in set
 !ok
 
 # test desc table
 desc orders2;
-+---------+-----------------------------+-------+-----------+---------------+----------------------------+
-|    name |                        type |  null |       key |        extras |                  watermark |
-+---------+-----------------------------+-------+-----------+---------------+----------------------------+
-|    user |                      BIGINT | FALSE | PRI(user) |               |                            |
-| product |                 VARCHAR(32) |  TRUE |           |               |                            |
-|  amount |                         INT |  TRUE |           |               |                            |
-|      ts |      TIMESTAMP(3) *ROWTIME* |  TRUE |           |               | `ts` - INTERVAL '1' SECOND |
-|   ptime | TIMESTAMP_LTZ(3) *PROCTIME* | FALSE |           | AS PROCTIME() |                            |
-+---------+-----------------------------+-------+-----------+---------------+----------------------------+
-5 rows in set
++----------------+-----------------------------+-------+-----+---------------+-----------+
+|           name |                        type |  null | key |        extras | watermark |
++----------------+-----------------------------+-------+-----+---------------+-----------+
+| trade_order_id |                      BIGINT | FALSE |     |               |           |
+|             ts |                TIMESTAMP(3) | FALSE |     |               |           |
+|           user |                      STRING |  TRUE |     |               |           |
+|     user_email |                      STRING | FALSE |     |               |           |
+|     product_id |                      BIGINT | FALSE |     |               |           |
+|          ptime | TIMESTAMP_LTZ(3) *PROCTIME* | FALSE |     | AS PROCTIME() |           |
++----------------+-----------------------------+-------+-----+---------------+-----------+
+6 rows in set
 !ok
 
 # ==========================================================================
@@ -527,6 +743,52 @@ Empty set
 !ok
 
 # ==========================================================================
+# test describe table with comment
+# ==========================================================================
+
+CREATE TABLE `default_catalog`.`default_database`.`orders3` (
+  `user` BIGINT NOT NULL comment 'this is the first column',
+  `product` VARCHAR(32),
+  `amount` INT,
+  `ts` TIMESTAMP(3) comment 'notice: watermark',
+  `ptime` AS PROCTIME() comment 'notice: computed column',
+  WATERMARK FOR `ts` AS `ts` - INTERVAL '1' SECOND,
+  CONSTRAINT `PK_3599338` PRIMARY KEY (`user`) NOT ENFORCED
+) WITH (
+  'connector' = 'kafka',
+  'scan.startup.mode' = 'earliest-offset'
+);
+[INFO] Execute statement succeed.
+!info
+
+describe orders3;
++---------+-----------------------------+-------+-----------+---------------+----------------------------+--------------------------+
+|    name |                        type |  null |       key |        extras |                  watermark |                  comment |
++---------+-----------------------------+-------+-----------+---------------+----------------------------+--------------------------+
+|    user |                      BIGINT | FALSE | PRI(user) |               |                            | this is the first column |
+| product |                 VARCHAR(32) |  TRUE |           |               |                            |                          |
+|  amount |                         INT |  TRUE |           |               |                            |                          |
+|      ts |      TIMESTAMP(3) *ROWTIME* |  TRUE |           |               | `ts` - INTERVAL '1' SECOND |        notice: watermark |
+|   ptime | TIMESTAMP_LTZ(3) *PROCTIME* | FALSE |           | AS PROCTIME() |                            |  notice: computed column |
++---------+-----------------------------+-------+-----------+---------------+----------------------------+--------------------------+
+5 rows in set
+!ok
+
+# test desc table
+desc orders3;
++---------+-----------------------------+-------+-----------+---------------+----------------------------+--------------------------+
+|    name |                        type |  null |       key |        extras |                  watermark |                  comment |
++---------+-----------------------------+-------+-----------+---------------+----------------------------+--------------------------+
+|    user |                      BIGINT | FALSE | PRI(user) |               |                            | this is the first column |
+| product |                 VARCHAR(32) |  TRUE |           |               |                            |                          |
+|  amount |                         INT |  TRUE |           |               |                            |                          |
+|      ts |      TIMESTAMP(3) *ROWTIME* |  TRUE |           |               | `ts` - INTERVAL '1' SECOND |        notice: watermark |
+|   ptime | TIMESTAMP_LTZ(3) *PROCTIME* | FALSE |           | AS PROCTIME() |                            |  notice: computed column |
++---------+-----------------------------+-------+-----------+---------------+----------------------------+--------------------------+
+5 rows in set
+!ok
+
+# ==========================================================================
 # test explain
 # ==========================================================================
 
@@ -552,6 +814,20 @@ CREATE TABLE IF NOT EXISTS orders2 (
  PRIMARY KEY(`user`) NOT ENFORCED
 ) with (
  'connector' = 'blackhole'
+);
+[INFO] Execute statement succeed.
+!info
+
+CREATE TABLE IF NOT EXISTS daily_orders (
+ `user` BIGINT NOT NULl,
+ product STRING,
+ amount INT,
+ dt STRING NOT NULL,
+ PRIMARY KEY(dt, `user`) NOT ENFORCED
+) PARTITIONED BY (dt) WITH (
+ 'connector' = 'filesystem',
+ 'path' = '$VAR_BATCH_PATH',
+ 'format' = 'csv'
 );
 [INFO] Execute statement succeed.
 !info
@@ -596,6 +872,45 @@ Sink(table=[default_catalog.default_database.orders2], fields=[user, product, am
 Sink(table=[default_catalog.default_database.orders2], fields=[user, product, amount, ts])
 +- WatermarkAssigner(rowtime=[ts], watermark=[(ts - 1000:INTERVAL SECOND)])
    +- TableSourceScan(table=[[default_catalog, default_database, orders]], fields=[user, product, amount, ts])
+
+!ok
+
+# test explain plan for insert into with static partition
+explain plan for insert into daily_orders partition (dt = '2022-06-12') values (123, 'toothpick', 1);
+== Abstract Syntax Tree ==
+LogicalSink(table=[default_catalog.default_database.daily_orders], fields=[user, product, amount, dt])
++- LogicalProject(user=[123:BIGINT], product=[_UTF-16LE'toothpick':VARCHAR(2147483647) CHARACTER SET "UTF-16LE"], amount=[1], dt=[_UTF-16LE'2022-06-12':VARCHAR(2147483647) CHARACTER SET "UTF-16LE"])
+   +- LogicalValues(tuples=[[{ 0 }]])
+
+== Optimized Physical Plan ==
+Sink(table=[default_catalog.default_database.daily_orders], fields=[user, product, amount, dt])
++- Calc(select=[123:BIGINT AS user, _UTF-16LE'toothpick':VARCHAR(2147483647) CHARACTER SET "UTF-16LE" AS product, 1 AS amount, _UTF-16LE'2022-06-12':VARCHAR(2147483647) CHARACTER SET "UTF-16LE" AS dt])
+   +- Values(type=[RecordType(INTEGER ZERO)], tuples=[[{ 0 }]])
+
+== Optimized Execution Plan ==
+Sink(table=[default_catalog.default_database.daily_orders], fields=[user, product, amount, dt])
++- Calc(select=[123 AS user, 'toothpick' AS product, 1 AS amount, '2022-06-12' AS dt])
+   +- Values(tuples=[[{ 0 }]])
+
+!ok
+
+# test explain plan for insert overwrite with static partition
+explain plan for insert into daily_orders partition (dt = '2022-06-12') select `user`, product, amount from daily_orders where dt = '2022-06-12';
+== Abstract Syntax Tree ==
+LogicalSink(table=[default_catalog.default_database.daily_orders], fields=[user, product, amount, EXPR$3])
++- LogicalProject(user=[$0], product=[$1], amount=[$2], EXPR$3=[_UTF-16LE'2022-06-12':VARCHAR(2147483647) CHARACTER SET "UTF-16LE"])
+   +- LogicalFilter(condition=[=($3, _UTF-16LE'2022-06-12')])
+      +- LogicalTableScan(table=[[default_catalog, default_database, daily_orders]])
+
+== Optimized Physical Plan ==
+Sink(table=[default_catalog.default_database.daily_orders], fields=[user, product, amount, EXPR$3])
++- Calc(select=[user, product, amount, _UTF-16LE'2022-06-12':VARCHAR(2147483647) CHARACTER SET "UTF-16LE" AS EXPR$3])
+   +- TableSourceScan(table=[[default_catalog, default_database, daily_orders, partitions=[], project=[user, product, amount], metadata=[]]], fields=[user, product, amount])
+
+== Optimized Execution Plan ==
+Sink(table=[default_catalog.default_database.daily_orders], fields=[user, product, amount, EXPR$3])
++- Calc(select=[user, product, amount, '2022-06-12' AS EXPR$3])
+   +- TableSourceScan(table=[[default_catalog, default_database, daily_orders, partitions=[], project=[user, product, amount], metadata=[]]], fields=[user, product, amount])
 
 !ok
 

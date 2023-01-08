@@ -22,16 +22,25 @@ package org.apache.flink.runtime.scheduler.adaptivebatch;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.JobManagerOptions.HybridPartitionDataConsumeConstraint;
 import org.apache.flink.runtime.JobException;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.checkpoint.CheckpointsCleaner;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
+import org.apache.flink.runtime.execution.ExecutionState;
+import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.IOMetrics;
 import org.apache.flink.runtime.executiongraph.IntermediateResult;
 import org.apache.flink.runtime.executiongraph.JobStatusListener;
-import org.apache.flink.runtime.executiongraph.TaskExecutionStateTransition;
+import org.apache.flink.runtime.executiongraph.MarkPartitionFinishedStrategy;
+import org.apache.flink.runtime.executiongraph.ResultPartitionBytes;
 import org.apache.flink.runtime.executiongraph.failover.flip1.FailoverStrategy;
 import org.apache.flink.runtime.executiongraph.failover.flip1.RestartBackoffTimeStrategy;
+import org.apache.flink.runtime.jobgraph.DistributionPattern;
+import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.jobgraph.JobEdge;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
@@ -41,12 +50,12 @@ import org.apache.flink.runtime.jobgraph.topology.DefaultLogicalResult;
 import org.apache.flink.runtime.jobgraph.topology.DefaultLogicalTopology;
 import org.apache.flink.runtime.jobgraph.topology.DefaultLogicalVertex;
 import org.apache.flink.runtime.metrics.groups.JobManagerJobMetricGroup;
+import org.apache.flink.runtime.scheduler.DefaultExecutionDeployer;
 import org.apache.flink.runtime.scheduler.DefaultScheduler;
 import org.apache.flink.runtime.scheduler.ExecutionGraphFactory;
+import org.apache.flink.runtime.scheduler.ExecutionOperations;
 import org.apache.flink.runtime.scheduler.ExecutionSlotAllocatorFactory;
-import org.apache.flink.runtime.scheduler.ExecutionVertexOperations;
 import org.apache.flink.runtime.scheduler.ExecutionVertexVersioner;
-import org.apache.flink.runtime.scheduler.SchedulerOperations;
 import org.apache.flink.runtime.scheduler.VertexParallelismStore;
 import org.apache.flink.runtime.scheduler.adaptivebatch.forwardgroup.ForwardGroup;
 import org.apache.flink.runtime.scheduler.adaptivebatch.forwardgroup.ForwardGroupComputeUtil;
@@ -58,6 +67,7 @@ import org.apache.flink.util.concurrent.ScheduledExecutor;
 import org.slf4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -65,13 +75,14 @@ import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * This scheduler decides the parallelism of JobVertex according to the data volume it consumes. A
  * dynamically built up ExecutionGraph is used for this purpose.
  */
-public class AdaptiveBatchScheduler extends DefaultScheduler implements SchedulerOperations {
+public class AdaptiveBatchScheduler extends DefaultScheduler {
 
     private final DefaultLogicalTopology logicalTopology;
 
@@ -79,7 +90,11 @@ public class AdaptiveBatchScheduler extends DefaultScheduler implements Schedule
 
     private final Map<JobVertexID, ForwardGroup> forwardGroupsByJobVertexId;
 
-    AdaptiveBatchScheduler(
+    private final Map<IntermediateDataSetID, BlockingResultInfo> blockingResultInfos;
+
+    private final HybridPartitionDataConsumeConstraint hybridPartitionDataConsumeConstraint;
+
+    public AdaptiveBatchScheduler(
             final Logger log,
             final JobGraph jobGraph,
             final Executor ioExecutor,
@@ -93,7 +108,7 @@ public class AdaptiveBatchScheduler extends DefaultScheduler implements Schedule
             final SchedulingStrategyFactory schedulingStrategyFactory,
             final FailoverStrategy.Factory failoverStrategyFactory,
             final RestartBackoffTimeStrategy restartBackoffTimeStrategy,
-            final ExecutionVertexOperations executionVertexOperations,
+            final ExecutionOperations executionOperations,
             final ExecutionVertexVersioner executionVertexVersioner,
             final ExecutionSlotAllocatorFactory executionSlotAllocatorFactory,
             long initializationTimestamp,
@@ -103,7 +118,8 @@ public class AdaptiveBatchScheduler extends DefaultScheduler implements Schedule
             final ShuffleMaster<?> shuffleMaster,
             final Time rpcTimeout,
             final VertexParallelismDecider vertexParallelismDecider,
-            int defaultMaxParallelism)
+            int defaultMaxParallelism,
+            HybridPartitionDataConsumeConstraint hybridPartitionDataConsumeConstraint)
             throws Exception {
 
         super(
@@ -120,7 +136,7 @@ public class AdaptiveBatchScheduler extends DefaultScheduler implements Schedule
                 schedulingStrategyFactory,
                 failoverStrategyFactory,
                 restartBackoffTimeStrategy,
-                executionVertexOperations,
+                executionOperations,
                 executionVertexVersioner,
                 executionSlotAllocatorFactory,
                 initializationTimestamp,
@@ -130,7 +146,8 @@ public class AdaptiveBatchScheduler extends DefaultScheduler implements Schedule
                 shuffleMaster,
                 rpcTimeout,
                 computeVertexParallelismStoreForDynamicGraph(
-                        jobGraph.getVertices(), defaultMaxParallelism));
+                        jobGraph.getVertices(), defaultMaxParallelism),
+                new DefaultExecutionDeployer.Factory());
 
         this.logicalTopology = DefaultLogicalTopology.fromJobGraph(jobGraph);
 
@@ -140,26 +157,86 @@ public class AdaptiveBatchScheduler extends DefaultScheduler implements Schedule
                 ForwardGroupComputeUtil.computeForwardGroups(
                         jobGraph.getVerticesSortedTopologicallyFromSources(),
                         getExecutionGraph()::getJobVertex);
+
+        this.blockingResultInfos = new HashMap<>();
+
+        this.hybridPartitionDataConsumeConstraint = hybridPartitionDataConsumeConstraint;
     }
 
     @Override
-    public void startSchedulingInternal() {
+    protected void startSchedulingInternal() {
         initializeVerticesIfPossible();
 
         super.startSchedulingInternal();
     }
 
     @Override
-    protected void updateTaskExecutionStateInternal(
-            final ExecutionVertexID executionVertexId,
-            final TaskExecutionStateTransition taskExecutionState) {
-
+    protected void onTaskFinished(final Execution execution, final IOMetrics ioMetrics) {
+        checkNotNull(ioMetrics);
+        updateResultPartitionBytesMetrics(ioMetrics.getResultPartitionBytes());
         initializeVerticesIfPossible();
 
-        super.updateTaskExecutionStateInternal(executionVertexId, taskExecutionState);
+        super.onTaskFinished(execution, ioMetrics);
     }
 
-    private void initializeVerticesIfPossible() {
+    private void updateResultPartitionBytesMetrics(
+            Map<IntermediateResultPartitionID, ResultPartitionBytes> resultPartitionBytes) {
+        checkNotNull(resultPartitionBytes);
+        resultPartitionBytes.forEach(
+                (partitionId, partitionBytes) -> {
+                    IntermediateResult result =
+                            getExecutionGraph()
+                                    .getAllIntermediateResults()
+                                    .get(partitionId.getIntermediateDataSetID());
+                    checkNotNull(result);
+
+                    blockingResultInfos.compute(
+                            result.getId(),
+                            (ignored, resultInfo) -> {
+                                if (resultInfo == null) {
+                                    resultInfo = createFromIntermediateResult(result);
+                                }
+                                resultInfo.recordPartitionInfo(
+                                        partitionId.getPartitionNumber(), partitionBytes);
+                                return resultInfo;
+                            });
+                });
+    }
+
+    @Override
+    protected void resetForNewExecution(final ExecutionVertexID executionVertexId) {
+        final ExecutionVertex executionVertex = getExecutionVertex(executionVertexId);
+        if (executionVertex.getExecutionState() == ExecutionState.FINISHED) {
+            executionVertex
+                    .getProducedPartitions()
+                    .values()
+                    .forEach(
+                            partition -> {
+                                blockingResultInfos.computeIfPresent(
+                                        partition.getIntermediateResult().getId(),
+                                        (ignored, resultInfo) -> {
+                                            resultInfo.resetPartitionInfo(
+                                                    partition.getPartitionNumber());
+                                            return resultInfo;
+                                        });
+                            });
+        }
+
+        super.resetForNewExecution(executionVertexId);
+    }
+
+    @Override
+    protected MarkPartitionFinishedStrategy getMarkPartitionFinishedStrategy() {
+        return (rp) ->
+                // for blocking result partition case, it always needs mark
+                // partition finished. for hybrid only consume finished partition case, as
+                // downstream needs the producer's finished status to start consuming the produced
+                // data, the notification of partition finished is required.
+                rp.isBlockingOrBlockingPersistentResultPartition()
+                        || hybridPartitionDataConsumeConstraint.isOnlyConsumeFinishedPartition();
+    }
+
+    void initializeVerticesIfPossible() {
         final List<ExecutionJobVertex> newlyInitializedJobVertices = new ArrayList<>();
         try {
             final long createTimestamp = System.currentTimeMillis();
@@ -249,12 +326,9 @@ public class AdaptiveBatchScheduler extends DefaultScheduler implements Schedule
             final ExecutionJobVertex producerVertex =
                     getExecutionJobVertex(consumedResult.getProducer().getId());
             if (producerVertex.isFinished()) {
-                IntermediateResult intermediateResult =
-                        getExecutionGraph().getAllIntermediateResults().get(consumedResult.getId());
-                checkNotNull(intermediateResult);
-
-                consumableResultInfo.add(
-                        BlockingResultInfo.createFromIntermediateResult(intermediateResult));
+                BlockingResultInfo resultInfo =
+                        checkNotNull(blockingResultInfos.get(consumedResult.getId()));
+                consumableResultInfo.add(resultInfo);
             } else {
                 // not all inputs consumable, return Optional.empty()
                 return Optional.empty();
@@ -322,5 +396,28 @@ public class AdaptiveBatchScheduler extends DefaultScheduler implements Schedule
                     }
                 },
                 Function.identity());
+    }
+
+    private static BlockingResultInfo createFromIntermediateResult(IntermediateResult result) {
+        checkArgument(result != null);
+        // Note that for dynamic graph, different partitions in the same result have the same number
+        // of subpartitions.
+        if (result.getConsumingDistributionPattern() == DistributionPattern.POINTWISE) {
+            return new PointwiseBlockingResultInfo(
+                    result.getId(),
+                    result.getNumberOfAssignedPartitions(),
+                    result.getPartitions()[0].getNumberOfSubpartitions());
+        } else {
+            return new AllToAllBlockingResultInfo(
+                    result.getId(),
+                    result.getNumberOfAssignedPartitions(),
+                    result.getPartitions()[0].getNumberOfSubpartitions(),
+                    result.isBroadcast());
+        }
+    }
+
+    @VisibleForTesting
+    BlockingResultInfo getBlockingResultInfo(IntermediateDataSetID resultId) {
+        return blockingResultInfos.get(resultId);
     }
 }

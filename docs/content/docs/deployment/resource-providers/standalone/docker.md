@@ -397,6 +397,7 @@ services:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
+        rest.address: jobmanager
 ```
 * In order to start the SQL Client run
   ```sh
@@ -431,7 +432,7 @@ FROM flink:latest
 # it currently only supports Python 3.6, 3.7 and 3.8 in PyFlink officially.
 
 RUN apt-get update -y && \
-apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev libffi-dev && \
+apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev libffi-dev liblzma-dev && \
 wget https://www.python.org/ftp/python/3.7.9/Python-3.7.9.tgz && \
 tar -xvf Python-3.7.9.tgz && \
 cd Python-3.7.9 && \
@@ -473,6 +474,18 @@ $ docker build --tag pyflink:latest .
 ```
 
 ## Configuring Flink on Docker
+
+### Via dynamic properties
+
+```sh
+$ docker run flink:{{< stable >}}{{< version >}}-scala{{< scala_version >}}{{< /stable >}}{{< unstable >}}latest{{< /unstable >}} \
+    <jobmanager|standalone-job|taskmanager|historyserver> \
+    -D jobmanager.rpc.address=host \
+    -D taskmanager.numberOfTaskSlots=3 \
+    -D blob.server.port=6124
+```
+
+Options set via dynamic properties overwrite the options from `flink-conf.yaml`.
 
 ### Via Environment Variables
 

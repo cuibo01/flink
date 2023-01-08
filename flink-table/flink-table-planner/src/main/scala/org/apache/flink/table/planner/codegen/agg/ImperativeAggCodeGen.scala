@@ -28,9 +28,9 @@ import org.apache.flink.table.planner.expressions.DeclarativeExpressionResolver
 import org.apache.flink.table.planner.expressions.DeclarativeExpressionResolver.toRexInputRef
 import org.apache.flink.table.planner.expressions.converter.ExpressionConverter
 import org.apache.flink.table.planner.plan.utils.AggregateInfo
-import org.apache.flink.table.planner.utils.SingleElementIterator
 import org.apache.flink.table.runtime.dataview.DataViewSpec
 import org.apache.flink.table.runtime.types.LogicalTypeDataTypeConverter.fromDataTypeToLogicalType
+import org.apache.flink.table.runtime.util.SingleElementIterator
 import org.apache.flink.table.types.DataType
 import org.apache.flink.table.types.logical.{LogicalType, RowType}
 import org.apache.flink.table.types.logical.utils.LogicalTypeChecks.getFieldCount
@@ -501,5 +501,11 @@ class ImperativeAggCodeGen(
   def emitValue: String = {
     val accTerm = if (isAccTypeInternal) accInternalTerm else accExternalTerm
     s"$functionTerm.emitValue($accTerm, $MEMBER_COLLECTOR_TERM);"
+  }
+
+  override def setWindowSize(generator: ExprCodeGenerator): String = {
+    // currently, we don't support set window size for ImperativeAggregateFunction,
+    // so return empty string directly
+    ""
   }
 }

@@ -23,6 +23,21 @@ import org.apache.beam.model.fnexecution.v1.BeamFnApi;
 /** Interface for doing actual operations on Flink state based on {@link BeamFnApi.StateRequest}. */
 public interface BeamStateHandler<S> {
 
+    /**
+     * Dispatches {@link BeamFnApi.StateRequest} to different handle functions base on request case.
+     */
     BeamFnApi.StateResponse.Builder handle(BeamFnApi.StateRequest request, S state)
+            throws Exception;
+
+    /** Handles GET requests. */
+    BeamFnApi.StateResponse.Builder handleGet(BeamFnApi.StateRequest request, S state)
+            throws Exception;
+
+    /** Handles APPEND requests. */
+    BeamFnApi.StateResponse.Builder handleAppend(BeamFnApi.StateRequest request, S state)
+            throws Exception;
+
+    /** Handles CLEAR requests. */
+    BeamFnApi.StateResponse.Builder handleClear(BeamFnApi.StateRequest request, S state)
             throws Exception;
 }

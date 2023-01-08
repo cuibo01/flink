@@ -44,6 +44,7 @@ import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResult;
 import org.apache.flink.runtime.executiongraph.JobStatusListener;
+import org.apache.flink.runtime.executiongraph.JobVertexInputInfo;
 import org.apache.flink.runtime.executiongraph.TaskExecutionStateTransition;
 import org.apache.flink.runtime.executiongraph.failover.flip1.ResultPartitionAvailabilityChecker;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
@@ -59,6 +60,7 @@ import org.apache.flink.runtime.state.CheckpointStorage;
 import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.util.OptionalFailure;
 import org.apache.flink.util.SerializedValue;
+import org.apache.flink.util.TernaryBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -172,6 +174,9 @@ class StateTrackingMockExecutionGraph implements ExecutionGraph {
     }
 
     @Override
+    public void setJsonPlan(String jsonPlan) {}
+
+    @Override
     public JobID getJobID() {
         return jobId;
     }
@@ -218,6 +223,11 @@ class StateTrackingMockExecutionGraph implements ExecutionGraph {
     @Override
     public Optional<String> getCheckpointStorageName() {
         return Optional.empty();
+    }
+
+    @Override
+    public TernaryBoolean isChangelogStateBackendEnabled() {
+        return TernaryBoolean.fromBoolean(false);
     }
 
     @Override
@@ -276,11 +286,6 @@ class StateTrackingMockExecutionGraph implements ExecutionGraph {
 
     @Override
     public KvStateLocationRegistry getKvStateLocationRegistry() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void setJsonPlan(String jsonPlan) {
         throw new UnsupportedOperationException();
     }
 
@@ -366,7 +371,10 @@ class StateTrackingMockExecutionGraph implements ExecutionGraph {
     }
 
     @Override
-    public void initializeJobVertex(ExecutionJobVertex ejv, long createTimestamp)
+    public void initializeJobVertex(
+            ExecutionJobVertex ejv,
+            long createTimestamp,
+            Map<IntermediateDataSetID, JobVertexInputInfo> jobVertexInputInfos)
             throws JobException {
         throw new UnsupportedOperationException();
     }

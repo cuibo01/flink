@@ -16,40 +16,67 @@
  * limitations under the License.
  */
 
+import { DecimalPipe, NgForOf, NgIf } from '@angular/common';
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
-import { Subject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { ActivatedRoute } from '@angular/router';
+import { of, Subject } from 'rxjs';
+import { catchError, mergeMap, startWith, takeUntil } from 'rxjs/operators';
 
-import { TaskManagerDetail } from '@flink-runtime-web/interfaces';
-import { TaskManagerService } from '@flink-runtime-web/services';
-
-import { TaskManagerLocalService } from '../task-manager-local.service';
+import { HumanizeBytesPipe } from '@flink-runtime-web/components/humanize-bytes.pipe';
+import { MetricMap, TaskManagerDetail } from '@flink-runtime-web/interfaces';
+import { StatusService, TaskManagerService } from '@flink-runtime-web/services';
+import { NzCardModule } from 'ng-zorro-antd/card';
+import { NzGridModule } from 'ng-zorro-antd/grid';
+import { NzIconModule } from 'ng-zorro-antd/icon';
+import { NzProgressModule } from 'ng-zorro-antd/progress';
+import { NzTableModule } from 'ng-zorro-antd/table';
+import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
 
 @Component({
   selector: 'flink-task-manager-metrics',
   templateUrl: './task-manager-metrics.component.html',
   styleUrls: ['./task-manager-metrics.component.less'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    NzCardModule,
+    NzTableModule,
+    NzToolTipModule,
+    NzProgressModule,
+    DecimalPipe,
+    HumanizeBytesPipe,
+    NzIconModule,
+    NzGridModule,
+    NgForOf,
+    NgIf
+  ],
+  standalone: true
 })
 export class TaskManagerMetricsComponent implements OnInit, OnDestroy {
-  public taskManagerDetail: TaskManagerDetail;
+  public taskManagerDetail?: TaskManagerDetail;
   public metrics: { [id: string]: number } = {};
 
   private readonly destroy$ = new Subject<void>();
 
   constructor(
     private readonly taskManagerService: TaskManagerService,
-    private readonly taskManagerLocalService: TaskManagerLocalService,
+    private readonly activatedRoute: ActivatedRoute,
+    private readonly statusService: StatusService,
     private readonly cdr: ChangeDetectorRef
   ) {}
 
   public ngOnInit(): void {
-    this.taskManagerLocalService
-      .taskManagerDetailChanges()
-      .pipe(takeUntil(this.destroy$))
+    const taskManagerId = this.activatedRoute.parent!.snapshot.params.taskManagerId;
+    this.statusService.refresh$
+      .pipe(
+        startWith(true),
+        mergeMap(() => this.taskManagerService.loadManager(taskManagerId).pipe(catchError(() => of(undefined)))),
+        takeUntil(this.destroy$)
+      )
       .subscribe(data => {
+        if (data) {
+          this.reload(data.id);
+        }
         this.taskManagerDetail = data;
-        this.reload(data.id);
         this.cdr.markForCheck();
       });
   }
@@ -71,7 +98,10 @@ export class TaskManagerMetricsComponent implements OnInit, OnDestroy {
         'Status.JVM.Memory.Metaspace.Used',
         'Status.JVM.Memory.Metaspace.Max'
       ])
-      .pipe(takeUntil(this.destroy$))
+      .pipe(
+        catchError(() => of({} as MetricMap)),
+        takeUntil(this.destroy$)
+      )
       .subscribe(metrics => {
         this.metrics = metrics;
         this.cdr.markForCheck();

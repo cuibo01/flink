@@ -43,6 +43,7 @@ import org.apache.flink.runtime.jobgraph.tasks.InputSplitProvider;
 import org.apache.flink.runtime.jobgraph.tasks.TaskOperatorEventGateway;
 import org.apache.flink.runtime.mailbox.SyncMailboxExecutor;
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.memory.SharedResources;
 import org.apache.flink.runtime.metrics.groups.TaskMetricGroup;
 import org.apache.flink.runtime.query.KvStateRegistry;
 import org.apache.flink.runtime.query.TaskKvStateRegistry;
@@ -56,8 +57,6 @@ import org.apache.flink.util.MutableObjectIterator;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.UserCodeClassLoader;
 import org.apache.flink.util.concurrent.Executors;
-
-import com.sun.istack.NotNull;
 
 import java.util.Collections;
 import java.util.LinkedList;
@@ -81,6 +80,8 @@ public class MockEnvironment implements Environment, AutoCloseable {
     private final ExecutionConfig executionConfig;
 
     private final MemoryManager memManager;
+
+    private final SharedResources sharedResources;
 
     private final IOManager ioManager;
 
@@ -169,6 +170,7 @@ public class MockEnvironment implements Environment, AutoCloseable {
         this.executionAttemptID = createExecutionAttemptId(jobVertexID, subtaskIndex, 0);
 
         this.memManager = memManager;
+        this.sharedResources = new SharedResources();
         this.ioManager = ioManager;
         this.taskManagerRuntimeInfo = taskManagerRuntimeInfo;
 
@@ -235,6 +237,11 @@ public class MockEnvironment implements Environment, AutoCloseable {
     @Override
     public MemoryManager getMemoryManager() {
         return this.memManager;
+    }
+
+    @Override
+    public SharedResources getSharedResources() {
+        return this.sharedResources;
     }
 
     @Override
@@ -405,7 +412,7 @@ public class MockEnvironment implements Environment, AutoCloseable {
     }
 
     @Override
-    public void setMainMailboxExecutor(@NotNull MailboxExecutor mainMailboxExecutor) {
+    public void setMainMailboxExecutor(MailboxExecutor mainMailboxExecutor) {
         this.mainMailboxExecutor = mainMailboxExecutor;
     }
 
@@ -415,7 +422,7 @@ public class MockEnvironment implements Environment, AutoCloseable {
     }
 
     @Override
-    public void setAsyncOperationsThreadPool(@NotNull ExecutorService executorService) {
+    public void setAsyncOperationsThreadPool(ExecutorService executorService) {
         this.asyncOperationsThreadPool = executorService;
     }
 
@@ -425,8 +432,7 @@ public class MockEnvironment implements Environment, AutoCloseable {
     }
 
     @Override
-    public void setCheckpointStorageAccess(
-            @NotNull CheckpointStorageAccess checkpointStorageAccess) {
+    public void setCheckpointStorageAccess(CheckpointStorageAccess checkpointStorageAccess) {
         this.checkpointStorageAccess = checkpointStorageAccess;
     }
 

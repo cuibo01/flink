@@ -155,6 +155,40 @@ Received a total of 5 rows
 
 {{< top >}}
 
+### Key-strokes
+
+There is a list of available key-strokes in SQL client
+
+| Key-Stroke (Linux, Windows(WSL)) | Key-Stroke (Mac) | Description                                                                            |
+|:---------------------------------|------------------|:---------------------------------------------------------------------------------------|
+| `alt-b`, `ctrl+⍇`                | `Esc-b`          | Backward word                                                                          |
+| `alt-f`, `Ctrl+⍈`                | `Esc-f`          | Forward word                                                                           |
+| `alt-c`                          | `Esc-c`          | Capitalize word                                                                        |
+| `alt-l`                          | `Esc-l`          | Lowercase word                                                                         |
+| `alt-u`                          | `Esc-u`          | Uppercase word                                                                         |
+| `alt-d`                          | `Esc-d`          | Kill word                                                                              |
+| `alt-n`                          | `Esc-n`          | History search forward (behaves same as down line from history in case of empty input) |
+| `alt-p`                          | `Esc-p`          | History search backward (behaves same as up line from history in case of empty input)  |
+| `alt-t`                          | `Esc-t`          | Transpose words                                                                        |
+| `ctrl-a`                         | `⌘-a`            | To the beginning of line                                                               |
+| `ctrl-e`                         | `⌘-e`            | To the end of line                                                                     |
+| `ctrl-b`                         | `⌘-b`            | Backward char                                                                          |
+| `ctrl-f`                         | `⌘-f`            | Forward char                                                                           |
+| `ctrl-d`                         | `⌘-d`            | Delete char                                                                            |
+| `ctrl-h`                         | `⌘-h`            | Backward delete char                                                                   |
+| `ctrl-t`                         | `⌘-t`            | Transpose chars                                                                        |
+| `ctrl-i`                         | `⌘-i`            | Invoke completion                                                                      |
+| `ctrl-j`                         | `⌘-j`            | Submit a query                                                                         |
+| `ctrl-m`                         | `⌘-m`            | Submit a query                                                                         |
+| `ctrl-k`                         | `⌘-k`            | Kill the line to the right from the cursor                                             |
+| `ctrl-w`                         | `⌘-w`            | Kill the line to the left from the cursor                                              |
+| `ctrl-u`                         | `⌘-u`            | Kill the whole line                                                                    |
+| `ctrl-l`                         | `⌘-l`            | Clear screen                                                                           |
+| `ctrl-n`                         | `⌘-n`            | Down line from history                                                                 |
+| `ctrl-p`                         | `⌘-p`            | Up line from history                                                                   |
+| `ctrl-r`                         | `⌘-r`            | History incremental search backward                                                    |
+| `ctrl-s`                         | `⌘-s`            | History incremental search forward                                                     |
+
 <a name="configuration"></a>
 
 Configuration
@@ -232,8 +266,8 @@ Mode "embedded" (default) submits Flink jobs from the local machine.
                                                --pyExecutable
                                                /usr/local/bin/python3). The python
                                                UDF worker depends on Python 3.6+,
-                                               Apache Beam (version == 2.27.0), Pip
-                                               (version >= 7.1.0) and SetupTools
+                                               Apache Beam (version == 2.38.0), Pip
+                                               (version >= 20.3) and SetupTools
                                                (version >= 37.0.0). Please ensure
                                                that the specified environment meets
                                                the above requirements.
@@ -336,7 +370,7 @@ SET 'parallelism.default' = '1'; -- optional: Flink's parallelism (1 by default)
 SET 'pipeline.auto-watermark-interval' = '200'; --optional: interval for periodic watermarks
 SET 'pipeline.max-parallelism' = '10'; -- optional: Flink's maximum parallelism
 SET 'table.exec.state.ttl' = '1000'; -- optional: table program's idle state time
-SET 'restart-strategy' = 'fixed-delay';
+SET 'restart-strategy.type' = 'fixed-delay';
 
 -- Configuration options for adjusting and tuning table programs.
 

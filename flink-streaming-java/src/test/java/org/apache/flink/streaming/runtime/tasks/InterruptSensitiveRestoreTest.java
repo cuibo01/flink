@@ -46,6 +46,7 @@ import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.InputSplitProvider;
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.memory.SharedResources;
 import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.query.KvStateRegistry;
 import org.apache.flink.runtime.shuffle.ShuffleEnvironment;
@@ -145,6 +146,7 @@ public class InterruptSensitiveRestoreTest {
             case KEYED_RAW:
                 cfg.setStateKeySerializer(IntSerializer.INSTANCE);
                 cfg.setStreamOperator(new StreamSource<>(new TestSource(mode)));
+                cfg.serializeAllConfigs();
                 break;
             default:
                 throw new IllegalArgumentException();
@@ -271,6 +273,7 @@ public class InterruptSensitiveRestoreTest {
                 Collections.<ResultPartitionDeploymentDescriptor>emptyList(),
                 Collections.<InputGateDeploymentDescriptor>emptyList(),
                 mock(MemoryManager.class),
+                new SharedResources(),
                 mock(IOManager.class),
                 shuffleEnvironment,
                 new KvStateService(new KvStateRegistry(), null, null),

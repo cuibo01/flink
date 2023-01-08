@@ -178,6 +178,27 @@ public class HybridSourceSplitEnumeratorTest {
     }
 
     @Test
+    public void testRestoreEnumeratorAfterFirstSourceWithoutRestoredSplits() throws Exception {
+        setupEnumeratorAndTriggerSourceSwitch();
+        HybridSourceEnumeratorState enumeratorState = enumerator.snapshotState(0);
+        MockSplitEnumerator underlyingEnumerator = getCurrentEnumerator(enumerator);
+        assertThat(
+                        (List<MockSourceSplit>)
+                                Whitebox.getInternalState(underlyingEnumerator, "splits"))
+                .hasSize(0);
+        enumerator =
+                (HybridSourceSplitEnumerator) source.restoreEnumerator(context, enumeratorState);
+        enumerator.start();
+        // subtask starts at -1 since it has no splits after restore
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(-1));
+        underlyingEnumerator = getCurrentEnumerator(enumerator);
+        assertThat(
+                        (List<MockSourceSplit>)
+                                Whitebox.getInternalState(underlyingEnumerator, "splits"))
+                .hasSize(0);
+    }
+
+    @Test
     public void testDefaultMethodDelegation() throws Exception {
         setupEnumeratorAndTriggerSourceSwitch();
         SplitEnumerator<MockSourceSplit, Object> underlyingEnumeratorSpy =
@@ -193,6 +214,43 @@ public class HybridSourceSplitEnumeratorTest {
         SwitchSourceEvent se = new SwitchSourceEvent(0, null, false);
         enumerator.handleSourceEvent(0, se);
         Mockito.verify(underlyingEnumeratorSpy).handleSourceEvent(0, se);
+    }
+
+    @Test
+    public void testInterceptNoMoreSplitEvent() {
+        context = new MockSplitEnumeratorContext<>(2);
+        source = HybridSource.builder(MOCK_SOURCE).addSource(MOCK_SOURCE).build();
+
+        enumerator = (HybridSourceSplitEnumerator) source.createEnumerator(context);
+        enumerator.start();
+        // mock enumerator assigns splits once all readers are registered
+        // At this time, hasNoMoreSplit check will call context.signalIntermediateNoMoreSplits
+        registerReader(context, enumerator, SUBTASK0);
+        registerReader(context, enumerator, SUBTASK1);
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(-1));
+        enumerator.handleSourceEvent(SUBTASK1, new SourceReaderFinishedEvent(-1));
+        assertThat(context.hasNoMoreSplits(0)).isFalse();
+        assertThat(context.hasNoMoreSplits(1)).isFalse();
+        splitFromSource0 =
+                context.getSplitsAssignmentSequence().get(0).assignment().get(SUBTASK0).get(0);
+
+        // task read finished, hasNoMoreSplit check will call context.signalNoMoreSplits, this is
+        // final finished event
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(0));
+        enumerator.handleSourceEvent(SUBTASK1, new SourceReaderFinishedEvent(0));
+        assertThat(context.hasNoMoreSplits(0)).isTrue();
+        assertThat(context.hasNoMoreSplits(1)).isTrue();
+
+        // test add splits back, then SUBTASK0 restore splitFromSource0 split
+        // reset splits assignment & previous subtaskHasNoMoreSplits flag.
+        context.getSplitsAssignmentSequence().clear();
+        context.resetNoMoreSplits(0);
+        enumerator.addReader(SUBTASK0);
+        enumerator.addSplitsBack(Collections.singletonList(splitFromSource0), SUBTASK0);
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(-1));
+        assertThat(context.hasNoMoreSplits(0)).isFalse();
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(0));
+        assertThat(context.hasNoMoreSplits(0)).isTrue();
     }
 
     private static class UnderlyingEnumeratorWrapper

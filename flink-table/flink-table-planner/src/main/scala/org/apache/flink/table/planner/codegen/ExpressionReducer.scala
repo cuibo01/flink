@@ -27,8 +27,8 @@ import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.codegen.FunctionCodeGenerator.generateFunction
 import org.apache.flink.table.planner.functions.sql.FlinkSqlOperatorTable.{JSON_ARRAY, JSON_OBJECT}
 import org.apache.flink.table.planner.plan.utils.PythonUtil.containsPythonCall
-import org.apache.flink.table.planner.utils.{JavaScalaConversionUtil, Logging}
 import org.apache.flink.table.planner.utils.JavaScalaConversionUtil.toScala
+import org.apache.flink.table.planner.utils.Logging
 import org.apache.flink.table.planner.utils.TimestampStringUtils.fromLocalDateTime
 import org.apache.flink.table.types.DataType
 import org.apache.flink.table.types.logical.RowType
@@ -37,8 +37,6 @@ import org.apache.calcite.avatica.util.ByteString
 import org.apache.calcite.rex._
 import org.apache.calcite.sql.`type`.SqlTypeName
 import org.apache.calcite.sql.SqlKind
-
-import java.util
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
@@ -50,7 +48,10 @@ import scala.collection.mutable.ListBuffer
  *   If the reduced expr's nullability can be changed, e.g. a null literal is definitely nullable
  *   and the other literals are not null.
  */
-class ExpressionReducer(tableConfig: TableConfig, allowChangeNullability: Boolean = false)
+class ExpressionReducer(
+    tableConfig: TableConfig,
+    classLoader: ClassLoader,
+    allowChangeNullability: Boolean = false)
   extends RexExecutor
   with Logging {
 
@@ -72,7 +73,7 @@ class ExpressionReducer(tableConfig: TableConfig, allowChangeNullability: Boolea
     val resultType = RowType.of(literalTypes: _*)
 
     // generate MapFunction
-    val ctx = new ConstantCodeGeneratorContext(tableConfig)
+    val ctx = new ConstantCodeGeneratorContext(tableConfig, classLoader)
 
     val exprGenerator = new ExprCodeGenerator(ctx, false)
       .bindInput(EMPTY_ROW_TYPE)
@@ -93,7 +94,7 @@ class ExpressionReducer(tableConfig: TableConfig, allowChangeNullability: Boolea
       EMPTY_ROW_TYPE
     )
 
-    val function = generatedFunction.newInstance(Thread.currentThread().getContextClassLoader)
+    val function = generatedFunction.newInstance(classLoader)
     val richMapFunction = function match {
       case r: RichMapFunction[GenericRowData, GenericRowData] => r
       case _ =>
@@ -189,17 +190,23 @@ class ExpressionReducer(tableConfig: TableConfig, allowChangeNullability: Boolea
               case _ =>
                 val reducedValue = reduced.getField(reducedIdx)
                 // RexBuilder handle double literal incorrectly, convert it into BigDecimal manually
-                val value =
-                  if (
-                    reducedValue != null &&
-                    unreduced.getType.getSqlTypeName == SqlTypeName.DOUBLE
-                  ) {
-                    new java.math.BigDecimal(reducedValue.asInstanceOf[Number].doubleValue())
+                if (
+                  reducedValue != null &&
+                  unreduced.getType.getSqlTypeName == SqlTypeName.DOUBLE
+                ) {
+                  val doubleVal = reducedValue.asInstanceOf[Number].doubleValue()
+                  if (doubleVal.isInfinity || doubleVal.isNaN) {
+                    reducedValues.add(unreduced)
                   } else {
-                    reducedValue
+                    reducedValues.add(
+                      maySkipNullLiteralReduce(
+                        rexBuilder,
+                        new java.math.BigDecimal(doubleVal),
+                        unreduced))
                   }
-
-                reducedValues.add(maySkipNullLiteralReduce(rexBuilder, value, unreduced))
+                } else {
+                  reducedValues.add(maySkipNullLiteralReduce(rexBuilder, reducedValue, unreduced))
+                }
                 reducedIdx += 1
             }
         }
@@ -296,8 +303,8 @@ class ExpressionReducer(tableConfig: TableConfig, allowChangeNullability: Boolea
 }
 
 /** Constant expression code generator context. */
-class ConstantCodeGeneratorContext(tableConfig: ReadableConfig)
-  extends CodeGeneratorContext(tableConfig) {
+class ConstantCodeGeneratorContext(tableConfig: ReadableConfig, classLoader: ClassLoader)
+  extends CodeGeneratorContext(tableConfig, classLoader) {
   override def addReusableFunction(
       function: UserDefinedFunction,
       functionContextClass: Class[_ <: FunctionContext] = classOf[FunctionContext],

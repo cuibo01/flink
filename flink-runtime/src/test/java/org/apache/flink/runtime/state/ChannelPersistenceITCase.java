@@ -52,6 +52,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -180,7 +181,8 @@ public class ChannelPersistenceITCase {
                                                 numberOfSubpartitions,
                                                 Integer.MAX_VALUE,
                                                 numberOfSubpartitions,
-                                                Integer.MAX_VALUE))
+                                                Integer.MAX_VALUE,
+                                                0))
                         .build();
         resultPartition.setup();
         return (BufferWritingResultPartition) resultPartition;
@@ -253,7 +255,9 @@ public class ChannelPersistenceITCase {
             writer.start(
                     checkpointId,
                     new CheckpointOptions(
-                            CHECKPOINT, new CheckpointStorageLocationReference("poly".getBytes())));
+                            CHECKPOINT,
+                            new CheckpointStorageLocationReference(
+                                    "poly".getBytes(StandardCharsets.UTF_8))));
             for (Map.Entry<InputChannelInfo, Buffer> e : icBuffers.entrySet()) {
                 writer.addInputData(
                         checkpointId,

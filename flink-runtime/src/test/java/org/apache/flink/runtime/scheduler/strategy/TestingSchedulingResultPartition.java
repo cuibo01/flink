@@ -28,7 +28,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -64,6 +63,10 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
         this.consumedPartitionGroups = new ArrayList<>();
     }
 
+    public int getNumConsumers() {
+        return consumerVertexGroup == null ? 1 : consumerVertexGroup.size();
+    }
+
     @Override
     public IntermediateResultPartitionID getId() {
         return intermediateResultPartitionID;
@@ -90,8 +93,8 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
     }
 
     @Override
-    public Optional<ConsumerVertexGroup> getConsumerVertexGroup() {
-        return Optional.of(consumerVertexGroup);
+    public List<ConsumerVertexGroup> getConsumerVertexGroups() {
+        return Collections.singletonList(consumerVertexGroup);
     }
 
     @Override
@@ -99,24 +102,23 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
         return Collections.unmodifiableList(consumedPartitionGroups);
     }
 
-    void addConsumerGroup(Collection<TestingSchedulingExecutionVertex> consumerVertices) {
+    void addConsumerGroup(
+            Collection<TestingSchedulingExecutionVertex> consumerVertices,
+            ResultPartitionType resultPartitionType) {
         checkState(this.consumerVertexGroup == null);
 
         final ConsumerVertexGroup consumerVertexGroup =
                 ConsumerVertexGroup.fromMultipleVertices(
                         consumerVertices.stream()
                                 .map(TestingSchedulingExecutionVertex::getId)
-                                .collect(Collectors.toList()));
+                                .collect(Collectors.toList()),
+                        resultPartitionType);
 
         this.consumerVertexGroup = consumerVertexGroup;
     }
 
     void registerConsumedPartitionGroup(ConsumedPartitionGroup consumedPartitionGroup) {
         consumedPartitionGroups.add(consumedPartitionGroup);
-
-        if (getState() == ResultPartitionState.CONSUMABLE) {
-            consumedPartitionGroup.partitionFinished();
-        }
     }
 
     void setProducer(TestingSchedulingExecutionVertex producer) {
@@ -127,7 +129,7 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
         for (ConsumedPartitionGroup consumedPartitionGroup : consumedPartitionGroups) {
             consumedPartitionGroup.partitionFinished();
         }
-        setState(ResultPartitionState.CONSUMABLE);
+        setState(ResultPartitionState.ALL_DATA_PRODUCED);
     }
 
     void setState(ResultPartitionState state) {
@@ -139,7 +141,7 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
         private IntermediateDataSetID intermediateDataSetId = new IntermediateDataSetID();
         private int partitionNum = 0;
         private ResultPartitionType resultPartitionType = ResultPartitionType.BLOCKING;
-        private ResultPartitionState resultPartitionState = ResultPartitionState.CONSUMABLE;
+        private ResultPartitionState resultPartitionState = ResultPartitionState.ALL_DATA_PRODUCED;
 
         Builder withIntermediateDataSetID(IntermediateDataSetID intermediateDataSetId) {
             this.intermediateDataSetId = intermediateDataSetId;

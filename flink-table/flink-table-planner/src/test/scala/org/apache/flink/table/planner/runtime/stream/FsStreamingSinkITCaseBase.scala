@@ -106,9 +106,10 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
   }
 
   def getDataStream2(fun: Row => Long) = {
-     new DataStream(env.getJavaEnv.addSource(
-      new FiniteTestSource(getData2, fun),
-      new RowTypeInfo(Types.INT, Types.STRING, Types.STRING, Types.STRING, Types.STRING)))
+    new DataStream(
+      env.getJavaEnv.addSource(
+        new FiniteTestSource(getData2, fun),
+        new RowTypeInfo(Types.INT, Types.STRING, Types.STRING, Types.STRING, Types.STRING)))
   }
 
   @Test
@@ -122,14 +123,8 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
       TimestampData.fromLocalDateTime(localDateTime).getMillisecond
     }
 
-    val stream: DataStream[Row] = new DataStream(
-      env.getJavaEnv.addSource(
-        new FiniteTestSource(getData2, fun),
-        new RowTypeInfo(Types.INT, Types.STRING, Types.STRING, Types.STRING, Types.STRING)))
-
     // write out the data
-    test(
-      Stream2(fun), "default", "yyyyMMdd", "$d", "d", "partition-time", "1d", getData2)
+    test(getDataStream2(fun), "default", "yyyyMMdd", "$d", "d", "partition-time", "1d", getData2)
 
     // verify that the written data is correct
     val basePath = new File(new URI(resultPath).getPath)
@@ -139,9 +134,10 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
   }
 
   def getDataStream(fun: Row => Long): DataStream[Row] = {
-    new DataStream(env.getJavaEnv.addSource(
-      new FiniteTestSource(getData, fun),
-      new RowTypeInfo(Types.INT, Types.STRING, Types.STRING, Types.STRING, Types.STRING)))
+    new DataStream(
+      env.getJavaEnv.addSource(
+        new FiniteTestSource(getData, fun),
+        new RowTypeInfo(Types.INT, Types.STRING, Types.STRING, Types.STRING, Types.STRING)))
   }
 
   def testPartitionCustomFormatDate(partition: Boolean, policy: String = "success-file"): Unit = {
@@ -152,13 +148,9 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
         DateTimeFormatter.ofPattern("MM-dd-yyyy HH:mm:ss"))
       TimestampData.fromLocalDateTime(localDateTime).getMillisecond
     }
-    val stream = new DataStream(
-      env.getJavaEnv.addSource(
-        new FiniteTestSource(getData, fun),
-        new RowTypeInfo(Types.INT, Types.STRING, Types.STRING, Types.STRING, Types.STRING)))
 
     test(
-      stream,
+      getDataStream(fun),
       "default",
       "MM-dd-yyyy HH:mm:ss",
       "$d $e:00:00",
@@ -185,8 +177,15 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
 
     tEnv.createTemporaryView("my_table", dataStream, $("a"), $("b"), $("c"), $("d"), $("e"))
 
-    val ddl: String = getDDL(timeExtractorKind, timeExtractorFormatterPattern,
-      timeExtractorPattern, partition, commitTrigger, commitDelay, policy, successFileName)
+    val ddl: String = getDDL(
+      timeExtractorKind,
+      timeExtractorFormatterPattern,
+      timeExtractorPattern,
+      partition,
+      commitTrigger,
+      commitDelay,
+      policy,
+      successFileName)
     tEnv.executeSql(ddl)
 
     tEnv.sqlQuery("select * from my_table").executeInsert("sink_table").await()
@@ -194,9 +193,15 @@ abstract class FsStreamingSinkITCaseBase extends StreamingTestBase {
     check("select * from sink_table", dataTest)
   }
 
-  def getDDL(timeExtractorKind: String, timeExtractorFormatterPattern: String,
-             timeExtractorPattern: String, partition: String, commitTrigger: String,
-             commitDelay: String, policy: String, successFileName: String) = {
+  def getDDL(
+      timeExtractorKind: String,
+      timeExtractorFormatterPattern: String,
+      timeExtractorPattern: String,
+      partition: String,
+      commitTrigger: String,
+      commitDelay: String,
+      policy: String,
+      successFileName: String) = {
     val ddl =
       s"""
          |create table sink_table (
